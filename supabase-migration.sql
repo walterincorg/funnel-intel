@@ -39,6 +39,7 @@ CREATE TABLE scan_runs (
   baseline_run_id uuid REFERENCES scan_runs(id),
   drift_level text,
   drift_details jsonb,
+  progress_log jsonb DEFAULT '[]'::jsonb,
   created_at timestamptz DEFAULT now()
 );
 

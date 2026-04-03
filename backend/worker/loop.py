@@ -106,12 +106,25 @@ def process_job(job: dict):
     baseline_run, baseline_steps = get_baseline(competitor_id)
     baseline_steps_data = baseline_steps if baseline_steps else None
 
+    # Progress callback — appends log entries to the DB in real-time
+    _progress_log_buffer = []
+
+    def _on_progress(entry: dict):
+        _progress_log_buffer.append(entry)
+        try:
+            db.table("scan_runs").update({
+                "progress_log": _progress_log_buffer,
+            }).eq("id", run_id).execute()
+        except Exception:
+            log.debug("Failed to flush progress log for %s", run_id)
+
     try:
         result = run_traversal_sync(
             competitor_name=comp["name"],
             funnel_url=comp["funnel_url"],
             config=comp.get("config"),
             baseline_steps=baseline_steps_data,
+            on_progress=_on_progress,
         )
 
         # Store steps
@@ -126,8 +139,10 @@ def process_job(job: dict):
                 "url": step.get("url"),
                 "metadata": {k: v for k, v in step.items()
                              if k not in ("step_number", "step_type", "question_text",
-                                          "answer_options", "action_taken", "url")},
+                                          "answer_options", "action_taken", "url", "log")},
             }).execute()
+
+        progress_log = _progress_log_buffer
 
         # Store pricing if captured
         if result["pricing"]:
@@ -149,6 +164,7 @@ def process_job(job: dict):
             "total_steps": summary.get("total_steps", len(result["steps"])),
             "stop_reason": summary.get("stop_reason"),
             "summary": summary,
+            "progress_log": progress_log,
         }
 
         # If no baseline exists, this becomes the baseline

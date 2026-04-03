@@ -35,6 +35,7 @@ async def run_traversal(
     funnel_url: str,
     config: dict | None = None,
     baseline_steps: list[dict] | None = None,
+    on_progress: callable | None = None,
 ) -> dict:
     """
     Run a funnel traversal and return structured results.
@@ -84,6 +85,23 @@ async def run_traversal(
         elif "step_number" in obj:
             steps.append(obj)
 
+        # Fire progress callback for each meaningful step
+        if on_progress and "step_number" in obj and not obj.get("summary"):
+            log_msg = obj.get("log")
+            if not log_msg:
+                parts = []
+                if obj.get("question_text"):
+                    parts.append(obj["question_text"])
+                if obj.get("action_taken"):
+                    parts.append(f"→ {obj['action_taken']}")
+                log_msg = " ".join(parts) if parts else None
+            if log_msg:
+                on_progress({
+                    "step": obj.get("step_number", 0),
+                    "type": obj.get("step_type", "unknown"),
+                    "message": log_msg,
+                })
+
     if not summary:
         summary = {
             "total_steps": len(steps),
@@ -103,6 +121,7 @@ def run_traversal_sync(
     funnel_url: str,
     config: dict | None = None,
     baseline_steps: list[dict] | None = None,
+    on_progress: callable | None = None,
 ) -> dict:
     """Synchronous wrapper for run_traversal."""
-    return asyncio.run(run_traversal(competitor_name, funnel_url, config, baseline_steps))
+    return asyncio.run(run_traversal(competitor_name, funnel_url, config, baseline_steps, on_progress))

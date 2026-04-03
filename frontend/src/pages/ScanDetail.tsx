@@ -1,8 +1,44 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, MessageSquare, CreditCard, FormInput, Info, Tag } from 'lucide-react'
-import { api, type ScanStep } from '@/api/client'
+import { ArrowLeft, MessageSquare, CreditCard, FormInput, Info, Tag, ScrollText } from 'lucide-react'
+import { api, type ScanStep, type ProgressLogEntry } from '@/api/client'
 import { cn, formatDate } from '@/lib/utils'
+
+function LogTypeIcon({ type }: { type: string }) {
+  switch (type) {
+    case 'question': return <span className="text-accent">Q</span>
+    case 'pricing': return <span className="text-success">$</span>
+    case 'discount': return <span className="text-warning">%</span>
+    case 'input': return <span className="text-info">F</span>
+    default: return <span className="text-text/40">·</span>
+  }
+}
+
+function ProgressLog({ entries }: { entries: ProgressLogEntry[] }) {
+  if (!entries.length) return null
+  return (
+    <div className="bg-bg-card rounded-xl border border-border p-5 mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <ScrollText size={16} className="text-accent" />
+        <h2 className="text-sm font-semibold text-text-bright">Progress Log</h2>
+        <span className="text-xs text-text/40">{entries.length} events</span>
+      </div>
+      <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+        {entries.map((entry, i) => (
+          <div key={i} className="flex gap-2.5 text-sm leading-relaxed">
+            <span className="shrink-0 w-8 text-right text-xs text-text/30 pt-0.5 font-mono">
+              {entry.step}
+            </span>
+            <span className="shrink-0 w-4 text-center text-xs pt-0.5 font-medium">
+              <LogTypeIcon type={entry.type} />
+            </span>
+            <span className="text-text/80">{entry.message}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function StepIcon({ type }: { type: string }) {
   switch (type) {
@@ -77,6 +113,8 @@ export function ScanDetail() {
     queryKey: ['scan', id],
     queryFn: () => api.getScan(id!),
     enabled: !!id,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'running' ? 5000 : false,
   })
 
   const { data: steps, isLoading: loadingSteps } = useQuery({
@@ -156,6 +194,11 @@ export function ScanDetail() {
           </div>
         )}
       </div>
+
+      {/* Progress log */}
+      {scan.progress_log && scan.progress_log.length > 0 && (
+        <ProgressLog entries={scan.progress_log} />
+      )}
 
       {/* Steps timeline */}
       <h2 className="text-lg font-medium text-text-bright mb-4">Steps</h2>

@@ -28,6 +28,12 @@ export interface Competitor {
   updated_at: string | null
 }
 
+export interface ProgressLogEntry {
+  step: number
+  type: string
+  message: string
+}
+
 export interface ScanRun {
   id: string
   competitor_id: string
@@ -40,6 +46,7 @@ export interface ScanRun {
   is_baseline: boolean
   drift_level: string | null
   drift_details: DriftDetail[] | null
+  progress_log: ProgressLogEntry[] | null
   created_at: string
 }
 

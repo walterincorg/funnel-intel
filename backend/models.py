@@ -43,6 +43,7 @@ class ScanRunOut(BaseModel):
     is_baseline: bool = False
     drift_level: str | None = None
     drift_details: list | None = None
+    progress_log: list | None = None
     created_at: datetime | None = None
 
 
