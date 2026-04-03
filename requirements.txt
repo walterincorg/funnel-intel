@@ -1,0 +1,10 @@
+browser-use
+langchain-anthropic
+langchain-openai
+langchain-ollama
+python-dotenv
+fastapi
+uvicorn[standard]
+supabase
+pydantic
+requests

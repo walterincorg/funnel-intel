@@ -1,0 +1,209 @@
+"""Worker polling loop — picks scan jobs and runs traversals."""
+
+from __future__ import annotations
+import logging
+import signal
+import time
+from datetime import datetime, timezone
+
+from backend.db import get_db
+from backend.worker.traversal import run_traversal_sync
+from backend.worker.differ import diff_runs
+from backend.worker.alerts import send_alert
+
+log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+POLL_INTERVAL = 10  # seconds
+_shutdown = False
+
+
+def _handle_signal(sig, frame):
+    global _shutdown
+    log.info("Received signal %s, shutting down gracefully...", sig)
+    _shutdown = True
+
+
+signal.signal(signal.SIGTERM, _handle_signal)
+signal.signal(signal.SIGINT, _handle_signal)
+
+
+def pick_job() -> dict | None:
+    """Claim the next pending job. Returns the job row or None."""
+    db = get_db()
+    # Fetch oldest pending job
+    res = (
+        db.table("scan_jobs")
+        .select("*")
+        .eq("status", "pending")
+        .order("priority", desc=True)
+        .order("created_at")
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return None
+
+    job = res.data[0]
+    # Claim it
+    db.table("scan_jobs").update({
+        "status": "picked",
+        "picked_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", job["id"]).eq("status", "pending").execute()
+
+    return job
+
+
+def get_baseline(competitor_id: str) -> tuple[dict | None, list[dict]]:
+    """Get the baseline run and its steps for a competitor."""
+    db = get_db()
+    res = (
+        db.table("scan_runs")
+        .select("*")
+        .eq("competitor_id", competitor_id)
+        .eq("is_baseline", True)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return None, []
+
+    run = res.data[0]
+    steps = (
+        db.table("scan_steps")
+        .select("*")
+        .eq("run_id", run["id"])
+        .order("step_number")
+        .execute()
+        .data
+    )
+    return run, steps
+
+
+def process_job(job: dict):
+    db = get_db()
+    competitor_id = job["competitor_id"]
+
+    # Fetch competitor
+    comp = db.table("competitors").select("*").eq("id", competitor_id).single().execute().data
+    if not comp:
+        log.error("Competitor %s not found, skipping job %s", competitor_id, job["id"])
+        db.table("scan_jobs").update({"status": "failed"}).eq("id", job["id"]).execute()
+        return
+
+    # Create scan run
+    now = datetime.now(timezone.utc).isoformat()
+    run = db.table("scan_runs").insert({
+        "competitor_id": competitor_id,
+        "status": "running",
+        "started_at": now,
+    }).execute().data[0]
+
+    run_id = run["id"]
+    log.info("Starting scan %s for %s", run_id, comp["name"])
+
+    # Check for baseline
+    baseline_run, baseline_steps = get_baseline(competitor_id)
+    baseline_steps_data = baseline_steps if baseline_steps else None
+
+    try:
+        result = run_traversal_sync(
+            competitor_name=comp["name"],
+            funnel_url=comp["funnel_url"],
+            config=comp.get("config"),
+            baseline_steps=baseline_steps_data,
+        )
+
+        # Store steps
+        for step in result["steps"]:
+            db.table("scan_steps").insert({
+                "run_id": run_id,
+                "step_number": step.get("step_number", 0),
+                "step_type": step.get("step_type", "unknown"),
+                "question_text": step.get("question_text"),
+                "answer_options": step.get("answer_options"),
+                "action_taken": step.get("action_taken"),
+                "url": step.get("url"),
+                "metadata": {k: v for k, v in step.items()
+                             if k not in ("step_number", "step_type", "question_text",
+                                          "answer_options", "action_taken", "url")},
+            }).execute()
+
+        # Store pricing if captured
+        if result["pricing"]:
+            db.table("pricing_snapshots").insert({
+                "run_id": run_id,
+                "competitor_id": competitor_id,
+                "plans": result["pricing"].get("plans"),
+                "discounts": result["pricing"].get("discounts"),
+                "trial_info": result["pricing"].get("trial_info"),
+                "captured_at_step": result["pricing"].get("step_number"),
+                "url": result["pricing"].get("url"),
+            }).execute()
+
+        # Update run as completed
+        summary = result["summary"]
+        update_data = {
+            "status": "completed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "total_steps": summary.get("total_steps", len(result["steps"])),
+            "stop_reason": summary.get("stop_reason"),
+            "summary": summary,
+        }
+
+        # If no baseline exists, this becomes the baseline
+        if not baseline_run:
+            update_data["is_baseline"] = True
+            log.info("First successful run for %s — marking as baseline", comp["name"])
+
+        # Diff against baseline if one exists
+        if baseline_run and baseline_steps:
+            new_steps = result["steps"]
+            baseline_pricing_res = db.table("pricing_snapshots").select("*").eq("run_id", baseline_run["id"]).limit(1).execute()
+            baseline_pricing = baseline_pricing_res.data[0] if baseline_pricing_res.data else None
+            new_pricing = result["pricing"]
+
+            diff = diff_runs(baseline_steps, new_steps, baseline_pricing, new_pricing)
+            update_data["drift_level"] = diff.drift_level
+            update_data["drift_details"] = [
+                {"severity": c.severity, "category": c.category,
+                 "step_number": c.step_number, "description": c.description}
+                for c in diff.changes
+            ]
+
+            # Send alerts for changes
+            if diff.has_changes:
+                alert_lines = [f"🔔 {comp['name']} — funnel changes detected:"]
+                for c in diff.changes:
+                    icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(c.severity, "⚪")
+                    alert_lines.append(f"  {icon} [{c.severity}] {c.description}")
+                send_alert("\n".join(alert_lines))
+
+        db.table("scan_runs").update(update_data).eq("id", run_id).execute()
+        db.table("scan_jobs").update({"status": "done"}).eq("id", job["id"]).execute()
+        log.info("Scan %s completed: %d steps", run_id, len(result["steps"]))
+
+    except Exception as e:
+        log.exception("Scan %s failed", run_id)
+        db.table("scan_runs").update({
+            "status": "failed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "summary": {"error": str(e)},
+        }).eq("id", run_id).execute()
+        db.table("scan_jobs").update({"status": "failed"}).eq("id", job["id"]).execute()
+        send_alert(f"❌ {comp['name']}: scan failed — {e}")
+
+
+def main():
+    log.info("Worker started, polling every %ds", POLL_INTERVAL)
+    while not _shutdown:
+        job = pick_job()
+        if job:
+            process_job(job)
+        else:
+            time.sleep(POLL_INTERVAL)
+    log.info("Worker stopped")
+
+
+if __name__ == "__main__":
+    main()
