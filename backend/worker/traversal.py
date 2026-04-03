@@ -53,10 +53,12 @@ async def run_traversal(
         prompt = build_traversal_prompt(competitor_name, funnel_url, config)
 
     browser = Browser(
-        headless=True,
-        chromium_sandbox=False,
-        args=["--disable-dev-shm-usage", "--disable-gpu"],
-        timeout=120,
+        browser_profile=BrowserProfile(
+            headless=True,
+            chromium_sandbox=False,
+            args=["--disable-dev-shm-usage", "--disable-gpu"],
+            is_local=True,
+        ),
     )
 
     try:
