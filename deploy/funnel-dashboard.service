@@ -7,7 +7,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/funnel-intel
 EnvironmentFile=/opt/funnel-intel/.env
-ExecStart=/usr/local/bin/uvicorn backend.main:app --host 127.0.0.1 --port 4318
+ExecStart=/opt/funnel-intel/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 4318
 Restart=on-failure
 RestartSec=5
 

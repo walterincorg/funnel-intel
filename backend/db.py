@@ -1,5 +1,5 @@
 from supabase import create_client, Client
-from backend.config import SUPABASE_URL, SUPABASE_KEY
+from backend.config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_STORAGE_BUCKET
 
 _client: Client | None = None
 

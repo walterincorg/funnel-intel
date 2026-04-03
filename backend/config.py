@@ -6,13 +6,19 @@ load_dotenv()
 
 # Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "funnel-screenshots")
 
 # OpenClaw
 OPENCLAW_PORT = os.getenv("OPENCLAW_PORT", "18789")
 OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
 OPENCLAW_ALERTS_CHANNEL = os.getenv("OPENCLAW_ALERTS_CHANNEL", "telegram")
-OPENCLAW_ALERTS_TARGET = os.getenv("OPENCLAW_ALERTS_TARGET", "")
+OPENCLAW_ALERTS_TARGET = os.getenv("OPENCLAW_TELEGRAM_TARGET", "")
+
+# Telegram (direct, if needed outside OpenClaw)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_THREAD_ID = os.getenv("TELEGRAM_THREAD_ID", "")
 
 # Version
 try:

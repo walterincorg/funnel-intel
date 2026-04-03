@@ -7,7 +7,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/funnel-intel
 EnvironmentFile=/opt/funnel-intel/.env
-ExecStart=/usr/bin/python3 -m backend.worker.loop
+ExecStart=/opt/funnel-intel/.venv/bin/python -m backend.worker.loop
 Restart=on-failure
 RestartSec=10
 

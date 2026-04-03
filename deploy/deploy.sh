@@ -8,7 +8,7 @@ echo "=== Pulling latest code ==="
 git pull origin main
 
 echo "=== Installing Python dependencies ==="
-pip install -r requirements.txt --quiet
+.venv/bin/pip install -r requirements.txt --quiet
 
 echo "=== Building frontend ==="
 cd frontend
