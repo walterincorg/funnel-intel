@@ -10,6 +10,7 @@ from backend.db import get_db
 from backend.worker.traversal import run_traversal_sync
 from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
+from backend.worker.ad_loop import maybe_run_ad_scrape
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -45,11 +46,15 @@ def pick_job() -> dict | None:
         return None
 
     job = res.data[0]
-    # Claim it
-    db.table("scan_jobs").update({
+    # Atomically claim it — only succeeds if still pending
+    claim = db.table("scan_jobs").update({
         "status": "picked",
         "picked_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", job["id"]).eq("status", "pending").execute()
+
+    # If another worker already claimed it, this update returns no rows
+    if not claim.data:
+        return None
 
     return job
 
@@ -217,6 +222,11 @@ def main():
         if job:
             process_job(job)
         else:
+            # Check if daily ad scrape is due
+            try:
+                maybe_run_ad_scrape()
+            except Exception:
+                log.exception("Ad scrape check failed")
             time.sleep(POLL_INTERVAL)
     log.info("Worker stopped")
 

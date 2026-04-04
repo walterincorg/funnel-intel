@@ -83,6 +83,67 @@ class PricingSnapshotOut(BaseModel):
     created_at: datetime | None = None
 
 
+# --- Ads ---
+
+class AdOut(BaseModel):
+    id: str
+    competitor_id: str
+    meta_ad_id: str
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    status: str | None = None
+    advertiser_name: str | None = None
+    page_id: str | None = None
+    media_type: str | None = None
+    platforms: list | None = None
+    landing_page_url: str | None = None
+    created_at: datetime | None = None
+
+
+class AdSnapshotOut(BaseModel):
+    id: str
+    ad_id: str
+    competitor_id: str
+    captured_date: str
+    status: str | None = None
+    body_text: str | None = None
+    headline: str | None = None
+    cta: str | None = None
+    image_url: str | None = None
+    video_url: str | None = None
+    start_date: str | None = None
+    stop_date: str | None = None
+    platforms: list | None = None
+    impression_range: dict | None = None
+    landing_page_url: str | None = None
+    created_at: datetime | None = None
+
+
+class AdSignalOut(BaseModel):
+    id: str
+    competitor_id: str
+    ad_id: str | None = None
+    signal_type: str
+    severity: str
+    title: str
+    detail: str | None = None
+    metadata: dict | None = None
+    signal_date: str
+    created_at: datetime | None = None
+
+
+class AdScrapeRunOut(BaseModel):
+    id: str
+    status: str
+    competitors_scraped: int = 0
+    ads_found: int = 0
+    signals_generated: int = 0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+    created_at: datetime | None = None
+
+
 # --- Version ---
 
 class VersionOut(BaseModel):

@@ -15,6 +15,11 @@ OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
 OPENCLAW_ALERTS_CHANNEL = os.getenv("OPENCLAW_ALERTS_CHANNEL", "telegram")
 OPENCLAW_ALERTS_TARGET = os.getenv("OPENCLAW_TELEGRAM_TARGET", "")
 
+# Apify (Meta Ads Library Scraper)
+APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
+APIFY_ADS_ACTOR_ID = os.getenv("APIFY_ADS_ACTOR_ID", "curious_coder/facebook-ads-library-scraper")
+AD_SCRAPE_HOUR_UTC = int(os.getenv("AD_SCRAPE_HOUR_UTC", "6"))
+
 # Telegram (direct, if needed outside OpenClaw)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -38,6 +43,8 @@ def get_llm():
         return ChatAnthropic(
             model=model,
             api_key=os.getenv("ANTHROPIC_API_KEY"),
+            temperature=0,
+            max_tokens=16384,
         )
 
     if provider == "openai":

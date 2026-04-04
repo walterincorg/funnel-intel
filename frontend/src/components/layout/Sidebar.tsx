@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, ScanSearch, DollarSign, GitCompare, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Users, ScanSearch, DollarSign, GitCompare, Megaphone, Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -8,6 +8,7 @@ const links = [
   { to: '/competitors', icon: Users, label: 'Competitors' },
   { to: '/pricing', icon: DollarSign, label: 'Pricing' },
   { to: '/compare', icon: GitCompare, label: 'Compare' },
+  { to: '/ad-intel', icon: Megaphone, label: 'Ad Intel' },
 ]
 
 export function Sidebar() {

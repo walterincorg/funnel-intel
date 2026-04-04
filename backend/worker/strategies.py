@@ -37,6 +37,11 @@ INSTRUCTIONS:
    Do NOT stop for simple input fields — fill them in and keep going.
 7. Maximum {max_steps} steps.
 
+IMPORTANT BROWSING RULES:
+- ALWAYS scroll down before clicking a button. The main action button (Continue, Next, Submit) is usually below the fold. Do NOT click buttons near the top of the page — those are often navigation/logo links that will reset the funnel.
+- If the page suddenly goes back to the beginning of the funnel (e.g. you see the first question again, or the URL changes to a new visitor/session ID), STOP IMMEDIATELY. Report it as stop_reason "funnel_reset" in the summary. Do NOT restart the funnel — one pass is enough.
+- After clicking, wait briefly for page transitions and animations to complete before acting on the next screen.
+
 For EACH step, output a JSON object on its own line:
 {{"step_number": N, "step_type": "question|info|input|pricing|discount", "question_text": "...", "answer_options": [{{"label": "...", "value": "..."}}], "action_taken": "clicked X", "url": "current URL", "log": "short human-readable summary of what happened and why"}}
 
@@ -50,7 +55,7 @@ If you see a PRICING page, output:
 {{"step_number": N, "step_type": "pricing", "plans": [{{"name": "...", "price": "...", "currency": "...", "period": "...", "features": ["..."]}}], "discounts": [{{"type": "...", "amount": "...", "original_price": "...", "discounted_price": "...", "conditions": "..."}}], "trial_info": {{"has_trial": true/false, "trial_days": N, "trial_price": "..."}}, "url": "current URL", "log": "..."}}
 
 After the last step, output a summary line:
-{{"summary": true, "total_steps": N, "stop_reason": "email_verification|paywall|end_of_funnel|max_steps"}}
+{{"summary": true, "total_steps": N, "stop_reason": "email_verification|paywall|funnel_reset|end_of_funnel|max_steps"}}
 """
 
 

@@ -102,6 +102,51 @@ export interface StepDiff {
   run_b: ScanStep | null
 }
 
+export interface Ad {
+  id: string
+  competitor_id: string
+  meta_ad_id: string
+  first_seen_at: string | null
+  last_seen_at: string | null
+  status: string | null
+  advertiser_name: string | null
+  page_id: string | null
+  media_type: string | null
+  platforms: string[] | null
+  landing_page_url: string | null
+  created_at: string
+}
+
+export interface AdSignal {
+  id: string
+  competitor_id: string
+  ad_id: string | null
+  signal_type: string
+  severity: string
+  title: string
+  detail: string | null
+  metadata: Record<string, unknown> | null
+  signal_date: string
+  created_at: string
+}
+
+export interface AdSignalSummary {
+  signal_type: string
+  count: number
+}
+
+export interface AdScrapeRun {
+  id: string
+  status: string
+  competitors_scraped: number
+  ads_found: number
+  signals_generated: number
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+  created_at: string
+}
+
 export interface Version {
   commit: string
   deployed_at: string
@@ -139,6 +184,24 @@ export const api = {
   // Compare
   compareRuns: (runAId: string, runBId: string) =>
     request<CompareResult>(`/compare/${runAId}/${runBId}`),
+
+  // Ads
+  listAds: (competitorId?: string) =>
+    request<Ad[]>(competitorId ? `/ads?competitor_id=${competitorId}` : '/ads'),
+  getAd: (id: string) => request<Ad>(`/ads/${id}`),
+  getAdSnapshots: (adId: string) => request<unknown[]>(`/ads/${adId}/snapshots`),
+  listAdSignals: (params?: { competitor_id?: string; signal_type?: string; days?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.competitor_id) qs.set('competitor_id', params.competitor_id)
+    if (params?.signal_type) qs.set('signal_type', params.signal_type)
+    if (params?.days) qs.set('days', String(params.days))
+    return request<AdSignal[]>(`/ads/signals?${qs}`)
+  },
+  adSignalsSummary: (days?: number) =>
+    request<AdSignalSummary[]>(days ? `/ads/signals/summary?days=${days}` : '/ads/signals/summary'),
+  listAdScrapeRuns: () => request<AdScrapeRun[]>('/ads/scrape-runs'),
+  triggerAdScrape: () =>
+    request<{ run_id: string; status: string }>('/ads/scrape/trigger', { method: 'POST' }),
 
   // System
   version: () => request<Version>('/version'),

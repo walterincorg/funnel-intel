@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 
 from browser_use import Agent, Browser, BrowserProfile
@@ -20,7 +21,6 @@ def _parse_json_lines(text: str) -> list[dict]:
         line = line.strip()
         if not line or not line.startswith("{"):
             continue
-        # Try to find JSON in the line
         match = re.search(r'\{.*\}', line)
         if match:
             try:
@@ -28,6 +28,20 @@ def _parse_json_lines(text: str) -> list[dict]:
             except json.JSONDecodeError:
                 continue
     return results
+
+
+def _extract_all_content(result) -> str:
+    """Extract all text content from agent result for JSON parsing."""
+    lines = []
+    try:
+        extracted = result.extracted_content()
+        if extracted:
+            for item in extracted:
+                if isinstance(item, str):
+                    lines.append(item)
+    except Exception:
+        pass
+    return "\n".join(lines)
 
 
 async def run_traversal(
@@ -53,23 +67,31 @@ async def run_traversal(
     else:
         prompt = build_traversal_prompt(competitor_name, funnel_url, config)
 
+    headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
     browser = Browser(
         browser_profile=BrowserProfile(
-            headless=True,
+            headless=headless,
             chromium_sandbox=False,
             args=["--disable-dev-shm-usage", "--disable-gpu"],
             is_local=True,
+            wait_for_network_idle_page_load_time=2.0,
+            wait_between_actions=0.5,
         ),
     )
 
     try:
-        agent = Agent(task=prompt, llm=get_llm(), browser=browser)
+        agent = Agent(
+            task=prompt,
+            llm=get_llm(),
+            browser=browser,
+            llm_timeout=180,
+        )
         result = await agent.run()
-        raw = str(result)
+        raw = _extract_all_content(result)
     finally:
         await browser.stop()
 
-    # Parse structured output
+    # Parse structured output from extracted content
     parsed = _parse_json_lines(raw)
 
     steps = []
@@ -101,6 +123,36 @@ async def run_traversal(
                     "type": obj.get("step_type", "unknown"),
                     "message": log_msg,
                 })
+
+    # If no parsed steps, build steps from agent history as fallback
+    if not steps:
+        try:
+            for i, item in enumerate(result.history, 1):
+                model_output = item.model_output
+                if model_output:
+                    step = {
+                        "step_number": i,
+                        "step_type": "info",
+                        "question_text": getattr(model_output, 'evaluation_previous_goal', None),
+                        "action_taken": getattr(model_output, 'next_goal', None),
+                        "log": getattr(model_output, 'memory', None),
+                    }
+                    # Get URL from action results
+                    if item.result:
+                        for r in item.result:
+                            if hasattr(r, 'extracted_content') and r.extracted_content:
+                                if '🔗 Navigated to' in r.extracted_content:
+                                    step["url"] = r.extracted_content.replace('🔗 Navigated to ', '')
+                    steps.append(step)
+
+                    if on_progress and step.get("log"):
+                        on_progress({
+                            "step": i,
+                            "type": "info",
+                            "message": step["log"],
+                        })
+        except Exception as e:
+            log.warning("Failed to extract steps from history: %s", e)
 
     if not summary:
         summary = {
