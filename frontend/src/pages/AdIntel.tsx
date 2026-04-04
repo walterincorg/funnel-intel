@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Megaphone, Play, TrendingUp, Trophy, Sparkles, ArrowRightLeft, X, Zap } from 'lucide-react'
-import { api, type Competitor, type AdSignal } from '@/api/client'
-import { cn, formatDate } from '@/lib/utils'
+import { api, type AdSignal } from '@/api/client'
+import { cn } from '@/lib/utils'
 
 const SIGNAL_CONFIG: Record<string, { label: string; icon: typeof Megaphone; color: string; bg: string }> = {
   new_ad: { label: 'New Ad', icon: Sparkles, color: 'text-info', bg: 'bg-info/10' },

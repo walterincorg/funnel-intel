@@ -22,18 +22,33 @@ def maybe_run_ad_scrape():
 
     Guards:
     - APIFY_API_TOKEN must be configured
-    - Current UTC hour must be >= AD_SCRAPE_HOUR_UTC
-    - No completed/running ad_scrape_runs for today
+    - No currently running ad_scrape_runs
+    - Either: a pending (manually triggered) run exists, OR it's past the daily scrape hour with no completed run today
     """
     if not APIFY_API_TOKEN:
         return
 
     now = datetime.now(timezone.utc)
-    if now.hour < AD_SCRAPE_HOUR_UTC:
-        return
-
     today = now.date()
     db = get_db()
+
+    # Check for manually triggered pending runs first
+    pending = (
+        db.table("ad_scrape_runs")
+        .select("id")
+        .eq("status", "pending")
+        .limit(1)
+        .execute()
+    )
+
+    if pending.data:
+        log.info("Found manually triggered ad scrape, starting now")
+        _run_ad_scrape(today)
+        return
+
+    # Otherwise check scheduled time
+    if now.hour < AD_SCRAPE_HOUR_UTC:
+        return
 
     # Check if already ran today
     existing = (
