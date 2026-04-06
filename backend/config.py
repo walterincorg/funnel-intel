@@ -19,6 +19,7 @@ OPENCLAW_ALERTS_TARGET = os.getenv("OPENCLAW_TELEGRAM_TARGET", "")
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 APIFY_ADS_ACTOR_ID = os.getenv("APIFY_ADS_ACTOR_ID", "curious_coder/facebook-ads-library-scraper")
 AD_SCRAPE_HOUR_UTC = int(os.getenv("AD_SCRAPE_HOUR_UTC", "6"))
+AD_SCRAPE_DAYS_OF_WEEK = {int(d) for d in os.getenv("AD_SCRAPE_DAYS_OF_WEEK", "0,3").split(",")}
 
 # Telegram (direct, if needed outside OpenClaw)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

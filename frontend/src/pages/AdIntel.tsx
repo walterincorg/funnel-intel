@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Megaphone, Play, TrendingUp, Trophy, Sparkles, ArrowRightLeft, X, Zap, ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react'
-import { api, type Ad, type AdSignal, type AdSnapshot, type AdScrapeRun } from '@/api/client'
+import { Megaphone, Play, TrendingUp, Trophy, Sparkles, ArrowRightLeft, X, Zap, ExternalLink, CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, Brain } from 'lucide-react'
+import { api, type Ad, type AdSignal, type AdSnapshot, type AdScrapeRun, type CompetitorAnalysis } from '@/api/client'
 import { cn } from '@/lib/utils'
 
 const SIGNAL_CONFIG: Record<string, { label: string; icon: typeof Megaphone; color: string; bg: string }> = {
@@ -9,7 +9,6 @@ const SIGNAL_CONFIG: Record<string, { label: string; icon: typeof Megaphone; col
   proven_winner: { label: 'Winner', icon: Trophy, color: 'text-success', bg: 'bg-success/10' },
   count_spike: { label: 'Spike', icon: TrendingUp, color: 'text-danger', bg: 'bg-danger/10' },
   copy_change: { label: 'Copy Change', icon: ArrowRightLeft, color: 'text-warning', bg: 'bg-warning/10' },
-  platform_expansion: { label: 'Expand', icon: Megaphone, color: 'text-accent', bg: 'bg-accent/10' },
   failed_test: { label: 'Failed', icon: X, color: 'text-danger', bg: 'bg-danger/10' },
 }
 
@@ -235,6 +234,7 @@ export function AdIntel() {
   const [filterType, setFilterType] = useState<string>('')
   const [days, setDays] = useState(7)
   const [selectedAdId, setSelectedAdId] = useState<string | null>(null)
+  const [analysisOpen, setAnalysisOpen] = useState(true)
 
   const { data: competitors } = useQuery({
     queryKey: ['competitors'],
@@ -259,6 +259,11 @@ export function AdIntel() {
     queryKey: ['ad-scrape-runs'],
     queryFn: api.listAdScrapeRuns,
     refetchInterval: 5000,
+  })
+
+  const { data: analyses } = useQuery({
+    queryKey: ['ad-analyses', filterCompetitor],
+    queryFn: () => api.listAnalyses(filterCompetitor || undefined),
   })
 
   const scrapeMutation = useMutation({
@@ -365,6 +370,63 @@ export function AdIntel() {
           ))}
         </div>
       </div>
+
+      {/* Analysis section */}
+      {analyses && analyses.length > 0 && (
+        <div className="mb-8">
+          <button
+            onClick={() => setAnalysisOpen(!analysisOpen)}
+            className="flex items-center gap-2 text-sm font-medium text-text-bright mb-4 hover:text-accent transition-colors"
+          >
+            {analysisOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <Brain size={16} className="text-accent" />
+            Strategy Analysis ({analyses.length} competitor{analyses.length !== 1 ? 's' : ''})
+          </button>
+
+          {analysisOpen && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {analyses.map(a => (
+                <div key={a.id} className="bg-bg-card rounded-xl border border-border p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-text-bright">
+                      {compMap.get(a.competitor_id) ?? 'Unknown'}
+                    </h3>
+                    <span className="text-xs text-text/40">{a.analysis_date}</span>
+                  </div>
+                  <p className="text-sm text-text/80 leading-relaxed mb-3">{a.summary}</p>
+                  {a.strategy_tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {a.strategy_tags.map(tag => (
+                        <span key={tag} className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-xs">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {a.top_ads.length > 0 && (
+                    <div className="space-y-1.5 pt-2 border-t border-border/50">
+                      <p className="text-xs text-text/50 uppercase tracking-wide">Top Ads</p>
+                      {a.top_ads.slice(0, 3).map((ad, i) => (
+                        <div
+                          key={ad.meta_ad_id}
+                          className={cn(
+                            'text-xs text-text/70 flex items-start gap-1.5',
+                            ad.ad_id ? 'cursor-pointer hover:text-accent' : ''
+                          )}
+                          onClick={ad.ad_id ? () => setSelectedAdId(ad.ad_id) : undefined}
+                        >
+                          <span className="text-accent/60 font-mono">{i + 1}.</span>
+                          <span>{ad.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Signal feed */}
       {isLoading ? (

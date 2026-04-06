@@ -11,51 +11,71 @@ from backend.config import APIFY_API_TOKEN, APIFY_ADS_ACTOR_ID
 log = logging.getLogger(__name__)
 
 APIFY_BASE = "https://api.apify.com/v2"
-SYNC_TIMEOUT = 300  # seconds — Apify sync endpoint blocks until done
-MAX_RETRIES = 2
-RETRY_DELAY = 5  # seconds between retries
+POLL_INTERVAL = 10  # seconds between poll attempts
+MAX_POLL_ATTEMPTS = 60  # 60 × 10s = 10 minutes max wait
+REQUEST_TIMEOUT = 30  # seconds for individual HTTP requests
 
 
 def scrape_competitor_ads(ads_library_url: str) -> list[dict]:
     """Run the Apify Facebook Ads Library scraper and return ad items.
 
-    Uses the synchronous run endpoint which blocks until the actor finishes
-    and returns dataset items directly.
+    Uses the async pattern: start run, poll until complete, fetch dataset.
     """
     if not APIFY_API_TOKEN:
         raise RuntimeError("APIFY_API_TOKEN not configured")
 
     actor_id = APIFY_ADS_ACTOR_ID.replace("/", "~")
-    url = f"{APIFY_BASE}/acts/{actor_id}/run-sync-get-dataset-items"
-
     headers = {
         "Authorization": f"Bearer {APIFY_API_TOKEN}",
         "Content-Type": "application/json",
     }
-    payload = {"urls": [{"url": ads_library_url}]}
+    payload = {
+        "urls": [{"url": ads_library_url}],
+        "maxResults": 200,
+        "country": "US",
+    }
 
-    resp = None
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=SYNC_TIMEOUT)
-            if resp.status_code < 500:
-                break
-            log.warning("Apify returned %d on attempt %d", resp.status_code, attempt + 1)
-        except requests.Timeout:
-            log.warning("Apify timeout on attempt %d", attempt + 1)
-            if attempt == MAX_RETRIES:
-                raise
-        if attempt < MAX_RETRIES:
-            time.sleep(RETRY_DELAY)
-
+    # Step 1: Start the actor run
+    start_url = f"{APIFY_BASE}/acts/{actor_id}/runs"
+    resp = requests.post(start_url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
+    run_data = resp.json().get("data", {})
+    run_id = run_data.get("id")
+    if not run_id:
+        raise RuntimeError("Apify returned no run ID")
+    log.info("Apify run started: %s", run_id)
 
-    items = resp.json()
+    # Step 2: Poll until run completes
+    run_url = f"{APIFY_BASE}/actor-runs/{run_id}"
+    for attempt in range(MAX_POLL_ATTEMPTS):
+        time.sleep(POLL_INTERVAL)
+        poll_resp = requests.get(run_url, headers=headers, timeout=REQUEST_TIMEOUT)
+        poll_resp.raise_for_status()
+        status = poll_resp.json().get("data", {}).get("status")
+        if status in ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"):
+            break
+        log.debug("Apify run %s status: %s (poll %d/%d)", run_id, status, attempt + 1, MAX_POLL_ATTEMPTS)
+    else:
+        raise TimeoutError(f"Apify run {run_id} did not complete after {MAX_POLL_ATTEMPTS * POLL_INTERVAL}s")
+
+    if status != "SUCCEEDED":
+        raise RuntimeError(f"Apify run {run_id} ended with status: {status}")
+
+    # Step 3: Fetch dataset items
+    dataset_id = poll_resp.json().get("data", {}).get("defaultDatasetId")
+    if not dataset_id:
+        raise RuntimeError(f"Apify run {run_id} has no dataset ID")
+
+    items_url = f"{APIFY_BASE}/datasets/{dataset_id}/items"
+    items_resp = requests.get(items_url, headers=headers, timeout=REQUEST_TIMEOUT)
+    items_resp.raise_for_status()
+
+    items = items_resp.json()
     if not isinstance(items, list):
-        log.warning("Unexpected Apify response type: %s", type(items))
+        log.warning("Unexpected Apify dataset response type: %s", type(items))
         return []
 
-    log.info("Apify returned %d ads for %s", len(items), ads_library_url)
+    log.info("Apify returned %d ads for %s (run %s)", len(items), ads_library_url, run_id)
     return items
 
 

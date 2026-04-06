@@ -8,9 +8,10 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 
-from backend.config import APIFY_API_TOKEN, AD_SCRAPE_HOUR_UTC
+from backend.config import APIFY_API_TOKEN, AD_SCRAPE_HOUR_UTC, AD_SCRAPE_DAYS_OF_WEEK
 from backend.db import get_db
 from backend.worker.ad_scraper import scrape_competitor_ads, normalize_ad
+from backend.worker.ad_analysis import run_competitor_analysis
 from backend.worker.ad_signals import compute_signals
 from backend.worker.alerts import send_alert
 
@@ -44,6 +45,10 @@ def maybe_run_ad_scrape():
     if pending.data:
         log.info("Found manually triggered ad scrape, starting now")
         _run_ad_scrape(today)
+        return
+
+    # Check day-of-week schedule
+    if today.weekday() not in AD_SCRAPE_DAYS_OF_WEEK:
         return
 
     # Otherwise check scheduled time
@@ -95,6 +100,8 @@ def _run_ad_scrape(today: date):
     total_ads = 0
     total_signals = 0
     competitors_scraped = 0
+    analyses_completed = 0
+    analyses_failed = 0
 
     try:
         # Get all competitors with ads_library_url
@@ -122,6 +129,16 @@ def _run_ad_scrape(today: date):
                 total_ads += ads_count
                 total_signals += signals_count
                 competitors_scraped += 1
+
+                # Run LLM analysis (isolated from scrape success)
+                try:
+                    if run_competitor_analysis(comp["id"], today):
+                        analyses_completed += 1
+                    else:
+                        analyses_failed += 1
+                except Exception:
+                    log.exception("Analysis failed for %s", comp["name"])
+                    analyses_failed += 1
             except Exception:
                 log.exception("Failed to scrape ads for %s", comp["name"])
                 send_alert(f"Ad scrape failed for {comp['name']}")
@@ -132,11 +149,14 @@ def _run_ad_scrape(today: date):
             "competitors_scraped": competitors_scraped,
             "ads_found": total_ads,
             "signals_generated": total_signals,
+            "analyses_completed": analyses_completed,
+            "analyses_failed": analyses_failed,
         }).eq("id", run_id).execute()
 
         log.info(
-            "Ad scrape completed: %d competitors, %d ads, %d signals",
+            "Ad scrape completed: %d competitors, %d ads, %d signals, %d/%d analyses",
             competitors_scraped, total_ads, total_signals,
+            analyses_completed, analyses_completed + analyses_failed,
         )
 
     except Exception as e:
@@ -161,51 +181,129 @@ def _scrape_one_competitor(
     normalized = [normalize_ad(raw) for raw in raw_ads]
     normalized = [a for a in normalized if a["meta_ad_id"]]  # filter blanks
 
-    # 2. Upsert ads + insert snapshots
-    for ad in normalized:
-        # Upsert into ads table
-        existing = (
-            db.table("ads")
-            .select("id")
-            .eq("competitor_id", competitor_id)
-            .eq("meta_ad_id", ad["meta_ad_id"])
-            .limit(1)
-            .execute()
-        )
+    # Build meta_ad_id -> raw_data lookup (fixes O(n²) .index() bug)
+    meta_to_raw = {}
+    for raw, norm in zip(raw_ads, [normalize_ad(r) for r in raw_ads]):
+        if norm["meta_ad_id"]:
+            meta_to_raw[norm["meta_ad_id"]] = raw
 
-        if existing.data:
-            ad_db_id = existing.data[0]["id"]
-            db.table("ads").update({
-                "last_seen_at": datetime.now(timezone.utc).isoformat(),
+    # 2. Batch upsert ads
+    ad_id_map = _batch_upsert_ads(db, competitor_id, normalized)
+
+    # 3. Batch upsert snapshots
+    _batch_upsert_snapshots(db, competitor_id, normalized, ad_id_map, meta_to_raw, today)
+
+    # 4. Compute signals (pass ad_id_map so new_ad signals get correct ad_id)
+    signals = compute_signals(competitor_id, normalized, today, ad_id_map=ad_id_map)
+
+    # 5. Insert signals
+    for sig in signals:
+        db.table("ad_signals").insert(sig).execute()
+
+    # 6. Alert on high-severity signals
+    high_signals = [s for s in signals if s["severity"] in ("high", "critical")]
+    if high_signals:
+        lines = [f"Ad Intel — {name}:"]
+        for s in high_signals:
+            icon = {"new_ad": "NEW", "proven_winner": "WINNER", "count_spike": "SPIKE",
+                    "copy_change": "COPY", "failed_test": "FAIL"}.get(
+                s["signal_type"], "SIGNAL"
+            )
+            lines.append(f"  [{icon}] {s['title']}")
+        send_alert("\n".join(lines))
+
+    log.info("  %s: %d ads, %d signals", name, len(normalized), len(signals))
+    return len(normalized), len(signals)
+
+
+def _batch_upsert_ads(
+    db, competitor_id: str, normalized: list[dict]
+) -> dict[str, str]:
+    """Batch upsert ads and return a meta_ad_id -> db_id map."""
+    # Fetch all existing ads for this competitor
+    existing_res = (
+        db.table("ads")
+        .select("id, meta_ad_id")
+        .eq("competitor_id", competitor_id)
+        .execute()
+    )
+    existing_map = {row["meta_ad_id"]: row["id"] for row in existing_res.data}
+
+    now = datetime.now(timezone.utc).isoformat()
+    new_rows = []
+    update_rows = []
+
+    for ad in normalized:
+        meta_id = ad["meta_ad_id"]
+        if meta_id in existing_map:
+            update_rows.append({
+                "competitor_id": competitor_id,
+                "meta_ad_id": meta_id,
+                "last_seen_at": now,
                 "status": ad.get("status"),
                 "platforms": ad.get("platforms"),
                 "landing_page_url": ad.get("landing_page_url"),
                 "media_type": ad.get("media_type"),
-            }).eq("id", ad_db_id).execute()
+            })
         else:
-            inserted = db.table("ads").insert({
+            new_rows.append({
                 "competitor_id": competitor_id,
-                "meta_ad_id": ad["meta_ad_id"],
+                "meta_ad_id": meta_id,
                 "status": ad.get("status"),
                 "advertiser_name": ad.get("advertiser_name"),
                 "page_id": ad.get("page_id"),
                 "media_type": ad.get("media_type"),
                 "platforms": ad.get("platforms"),
                 "landing_page_url": ad.get("landing_page_url"),
-            }).execute()
-            ad_db_id = inserted.data[0]["id"]
+            })
 
-        # Insert snapshot (upsert on ad_id + captured_date)
-        existing_snap = (
-            db.table("ad_snapshots")
-            .select("id")
-            .eq("ad_id", ad_db_id)
-            .eq("captured_date", today.isoformat())
-            .limit(1)
-            .execute()
-        )
+    # Batch upsert (try .upsert(), fall back to individual inserts)
+    if new_rows:
+        try:
+            res = db.table("ads").upsert(new_rows, on_conflict="meta_ad_id,competitor_id").execute()
+            for row in res.data:
+                existing_map[row["meta_ad_id"]] = row["id"]
+        except Exception:
+            log.warning("Batch upsert failed for new ads, falling back to individual inserts")
+            for row in new_rows:
+                inserted = db.table("ads").insert(row).execute()
+                existing_map[row["meta_ad_id"]] = inserted.data[0]["id"]
 
-        snap_data = {
+    if update_rows:
+        try:
+            res = db.table("ads").upsert(update_rows, on_conflict="meta_ad_id,competitor_id").execute()
+            for row in res.data:
+                existing_map[row["meta_ad_id"]] = row["id"]
+        except Exception:
+            log.warning("Batch upsert failed for existing ads, falling back to individual updates")
+            for row in update_rows:
+                db.table("ads").update({
+                    "last_seen_at": row["last_seen_at"],
+                    "status": row["status"],
+                    "platforms": row["platforms"],
+                    "landing_page_url": row["landing_page_url"],
+                    "media_type": row["media_type"],
+                }).eq("competitor_id", competitor_id).eq("meta_ad_id", row["meta_ad_id"]).execute()
+
+    return existing_map
+
+
+def _batch_upsert_snapshots(
+    db,
+    competitor_id: str,
+    normalized: list[dict],
+    ad_id_map: dict[str, str],
+    meta_to_raw: dict[str, dict],
+    today: date,
+):
+    """Batch upsert ad snapshots for today."""
+    snap_rows = []
+    for ad in normalized:
+        meta_id = ad["meta_ad_id"]
+        ad_db_id = ad_id_map.get(meta_id)
+        if not ad_db_id:
+            continue
+        snap_rows.append({
             "ad_id": ad_db_id,
             "competitor_id": competitor_id,
             "captured_date": today.isoformat(),
@@ -220,32 +318,24 @@ def _scrape_one_competitor(
             "platforms": ad.get("platforms"),
             "impression_range": ad.get("impression_range"),
             "landing_page_url": ad.get("landing_page_url"),
-            "raw_data": raw_ads[normalized.index(ad)] if ad in normalized else None,
-        }
+            "raw_data": meta_to_raw.get(meta_id),
+        })
 
-        if existing_snap.data:
-            db.table("ad_snapshots").update(snap_data).eq("id", existing_snap.data[0]["id"]).execute()
-        else:
-            db.table("ad_snapshots").insert(snap_data).execute()
-
-    # 3. Compute signals
-    signals = compute_signals(competitor_id, normalized, today)
-
-    # 4. Insert signals
-    for sig in signals:
-        db.table("ad_signals").insert(sig).execute()
-
-    # 5. Alert on high-severity signals
-    high_signals = [s for s in signals if s["severity"] in ("high", "critical")]
-    if high_signals:
-        lines = [f"Ad Intel — {name}:"]
-        for s in high_signals:
-            icon = {"new_ad": "NEW", "proven_winner": "WINNER", "count_spike": "SPIKE",
-                    "copy_change": "COPY", "platform_expansion": "EXPAND", "failed_test": "FAIL"}.get(
-                s["signal_type"], "SIGNAL"
-            )
-            lines.append(f"  [{icon}] {s['title']}")
-        send_alert("\n".join(lines))
-
-    log.info("  %s: %d ads, %d signals", name, len(normalized), len(signals))
-    return len(normalized), len(signals)
+    if snap_rows:
+        try:
+            db.table("ad_snapshots").upsert(snap_rows, on_conflict="ad_id,captured_date").execute()
+        except Exception:
+            log.warning("Batch snapshot upsert failed, falling back to individual inserts")
+            for row in snap_rows:
+                existing_snap = (
+                    db.table("ad_snapshots")
+                    .select("id")
+                    .eq("ad_id", row["ad_id"])
+                    .eq("captured_date", row["captured_date"])
+                    .limit(1)
+                    .execute()
+                )
+                if existing_snap.data:
+                    db.table("ad_snapshots").update(row).eq("id", existing_snap.data[0]["id"]).execute()
+                else:
+                    db.table("ad_snapshots").insert(row).execute()

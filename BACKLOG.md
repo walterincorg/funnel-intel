@@ -113,3 +113,13 @@ Currently using basic `logging.getLogger()` with no structured output, no log ag
 - **Self-hosted:** Loki + Grafana on the VPS (heavier but no external dependency)
 
 **Why it matters:** The ad scraping pipeline runs unattended on a schedule. When a competitor fails silently (like the TodayIsTheDay timeout), we don't know until someone manually checks. Structured logs with alerting on ERROR-level events would catch these immediately.
+
+## Test Coverage for Ad Pipeline
+
+Zero test files exist in this project. The ad pipeline was rewritten (batch upserts, disappearance-based failed_test, LLM analysis) without tests. Priority test files:
+
+1. **`test_ad_signals.py`** — Unit tests for `compute_signals()` with mocked DB. Cover: new_ad detection, proven_winner threshold (30d), disappearance-based failed_test (7d window), copy_change diff, count_spike math, deduplication of existing signals.
+2. **`test_ad_analysis.py`** — Unit test for LLM JSON parsing and `meta_ad_id` → UUID mapping with mocked Anthropic response. Cover: valid response, malformed response, missing tool_use block, empty ad list.
+3. **`test_ad_loop.py`** — Integration-style test verifying batch upsert produces correct `ad_id_map`, raw_data mapped to correct ad, new vs existing ad handling.
+
+**Why it matters:** Signal logic drives customer-facing insights. A bug in failed_test or proven_winner silently produces wrong data. The LLM analysis pipeline is non-deterministic. Without tests, bugs are only caught when the customer notices wrong data.

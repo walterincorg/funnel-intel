@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException
 from backend.db import get_db
-from backend.models import AdOut, AdSnapshotOut, AdSignalOut, AdScrapeRunOut
+from backend.models import AdOut, AdSnapshotOut, AdSignalOut, AdScrapeRunOut, CompetitorAnalysisOut
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
@@ -54,6 +54,33 @@ def signals_summary(days: int = 7):
         t = row["signal_type"]
         counts[t] = counts.get(t, 0) + 1
     return [{"signal_type": k, "count": v} for k, v in counts.items()]
+
+
+@router.get("/analysis", response_model=list[CompetitorAnalysisOut])
+def list_analyses(competitor_id: str | None = None):
+    """Get the latest LLM analysis per competitor."""
+    db = get_db()
+    q = (
+        db.table("competitor_analyses")
+        .select("*")
+        .order("analysis_date", desc=True)
+    )
+    if competitor_id:
+        q = q.eq("competitor_id", competitor_id).limit(1)
+    else:
+        # Get all, then dedupe to latest per competitor in Python
+        q = q.limit(200)
+
+    rows = q.execute().data
+    if not competitor_id:
+        seen = set()
+        deduped = []
+        for row in rows:
+            if row["competitor_id"] not in seen:
+                seen.add(row["competitor_id"])
+                deduped.append(row)
+        return deduped
+    return rows
 
 
 @router.get("/scrape-runs", response_model=list[AdScrapeRunOut])

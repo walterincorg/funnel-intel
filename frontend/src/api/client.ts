@@ -160,9 +160,21 @@ export interface AdScrapeRun {
   competitors_scraped: number
   ads_found: number
   signals_generated: number
+  analyses_completed: number
+  analyses_failed: number
   started_at: string | null
   completed_at: string | null
   error: string | null
+  created_at: string
+}
+
+export interface CompetitorAnalysis {
+  id: string
+  competitor_id: string
+  analysis_date: string
+  summary: string
+  top_ads: { ad_id: string | null; meta_ad_id: string; reason: string }[]
+  strategy_tags: string[]
   created_at: string
 }
 
@@ -228,6 +240,8 @@ export const api = {
   adSignalsSummary: (days?: number) =>
     request<AdSignalSummary[]>(days ? `/ads/signals/summary?days=${days}` : '/ads/signals/summary'),
   listAdScrapeRuns: () => request<AdScrapeRun[]>('/ads/scrape-runs'),
+  listAnalyses: (competitorId?: string) =>
+    request<CompetitorAnalysis[]>(competitorId ? `/ads/analysis?competitor_id=${competitorId}` : '/ads/analysis'),
   triggerAdScrape: () =>
     request<{ run_id: string; status: string }>('/ads/scrape/trigger', { method: 'POST' }),
 

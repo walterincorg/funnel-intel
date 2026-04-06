@@ -138,9 +138,21 @@ class AdScrapeRunOut(BaseModel):
     competitors_scraped: int = 0
     ads_found: int = 0
     signals_generated: int = 0
+    analyses_completed: int = 0
+    analyses_failed: int = 0
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
+    created_at: datetime | None = None
+
+
+class CompetitorAnalysisOut(BaseModel):
+    id: str
+    competitor_id: str
+    analysis_date: str
+    summary: str
+    top_ads: list[dict] = []
+    strategy_tags: list[str] = []
     created_at: datetime | None = None
 
 
