@@ -84,6 +84,8 @@ def _run_analysis(competitor_id: str, today: date) -> bool:
         .select("id, meta_ad_id, status, media_type, landing_page_url")
         .eq("competitor_id", competitor_id)
         .eq("status", "ACTIVE")
+        .order("last_seen_at", desc=True)
+        .limit(200)
         .execute()
     )
 
@@ -92,18 +94,24 @@ def _run_analysis(competitor_id: str, today: date) -> bool:
         return False
 
     # Get latest snapshot for each ad (for headline, body_text, start_date)
+    # Batch in groups of 50 to avoid Supabase query size limits
+    all_snaps = []
     ad_ids = [a["id"] for a in ads_res.data]
-    snaps_res = (
-        db.table("ad_snapshots")
-        .select("ad_id, headline, body_text, start_date")
-        .in_("ad_id", ad_ids)
-        .order("captured_date", desc=True)
-        .execute()
-    )
+    for i in range(0, len(ad_ids), 50):
+        batch = ad_ids[i:i + 50]
+        batch_res = (
+            db.table("ad_snapshots")
+            .select("ad_id, headline, body_text, start_date")
+            .in_("ad_id", batch)
+            .order("captured_date", desc=True)
+            .execute()
+        )
+        all_snaps.extend(batch_res.data)
+    snaps_res_data = all_snaps
 
     # Dedupe to latest snapshot per ad
     latest_snaps = {}
-    for snap in snaps_res.data:
+    for snap in snaps_res_data:
         if snap["ad_id"] not in latest_snaps:
             latest_snaps[snap["ad_id"]] = snap
 
