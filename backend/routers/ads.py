@@ -60,18 +60,22 @@ def signals_summary(days: int = 7):
 def list_analyses(competitor_id: str | None = None):
     """Get the latest LLM analysis per competitor."""
     db = get_db()
-    q = (
-        db.table("competitor_analyses")
-        .select("*")
-        .order("analysis_date", desc=True)
-    )
-    if competitor_id:
-        q = q.eq("competitor_id", competitor_id).limit(1)
-    else:
-        # Get all, then dedupe to latest per competitor in Python
-        q = q.limit(200)
+    try:
+        q = (
+            db.table("competitor_analyses")
+            .select("*")
+            .order("analysis_date", desc=True)
+        )
+        if competitor_id:
+            q = q.eq("competitor_id", competitor_id).limit(1)
+        else:
+            q = q.limit(200)
 
-    rows = q.execute().data
+        rows = q.execute().data
+    except Exception:
+        # Table may not exist yet (migration not run)
+        return []
+
     if not competitor_id:
         seen = set()
         deduped = []
