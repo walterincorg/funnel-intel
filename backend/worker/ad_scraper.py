@@ -31,8 +31,8 @@ def scrape_competitor_ads(ads_library_url: str) -> list[dict]:
     }
     payload = {
         "urls": [{"url": ads_library_url}],
-        "maxResults": 200,
-        "country": "US",
+        "limitPerSource": 200,
+        "scrapePageAds.countryCode": "US",
     }
 
     # Step 1: Start the actor run
