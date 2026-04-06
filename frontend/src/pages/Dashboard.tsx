@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Play, Clock, CheckCircle, XCircle, AlertTriangle, ArrowRight } from 'lucide-react'
+import { Play, Clock, CheckCircle, XCircle, AlertTriangle, ArrowRight, Loader } from 'lucide-react'
 import { api, type Competitor, type ScanRun } from '@/api/client'
 import { cn, formatDate } from '@/lib/utils'
 
@@ -32,12 +32,20 @@ function DriftBadge({ level }: { level: string | null }) {
   )
 }
 
-function CompetitorCard({ competitor, latestScan, onScan }: {
+function CompetitorCard({ competitor, latestScan, onScan, jobStatus }: {
   competitor: Competitor
   latestScan: ScanRun | undefined
   onScan: () => void
+  jobStatus: 'pending' | 'picked' | null
 }) {
   const navigate = useNavigate()
+  const isActive = jobStatus !== null
+
+  const buttonTitle = jobStatus === 'picked'
+    ? 'Scanning…'
+    : jobStatus === 'pending'
+    ? 'Queued — waiting for worker'
+    : 'Trigger scan'
 
   return (
     <div className="bg-bg-card rounded-xl border border-border p-5 hover:border-accent/30 transition-colors">
@@ -53,10 +61,19 @@ function CompetitorCard({ competitor, latestScan, onScan }: {
         </div>
         <button
           onClick={onScan}
-          className="p-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
-          title="Trigger scan"
+          disabled={isActive}
+          className={cn(
+            'p-2 rounded-lg transition-colors',
+            isActive
+              ? 'bg-accent/5 text-accent/40 cursor-not-allowed'
+              : 'bg-accent/10 text-accent hover:bg-accent/20'
+          )}
+          title={buttonTitle}
         >
-          <Play size={16} />
+          {isActive
+            ? <Loader size={16} className="animate-spin" />
+            : <Play size={16} />
+          }
         </button>
       </div>
 
@@ -98,21 +115,41 @@ function CompetitorCard({ competitor, latestScan, onScan }: {
 }
 
 export function Dashboard() {
+  const queryClient = useQueryClient()
+
+  // Poll active jobs every 3s — source of truth for button state
+  const { data: activeJobs } = useQuery({
+    queryKey: ['active-jobs'],
+    queryFn: api.listActiveJobs,
+    refetchInterval: 3000,
+  })
+
   const { data: competitors, isLoading: loadingComp } = useQuery({
     queryKey: ['competitors'],
     queryFn: api.listCompetitors,
   })
 
+  // Poll scans every 5s so completed/failed status appears automatically
   const { data: scans, isLoading: loadingScans } = useQuery({
     queryKey: ['scans'],
     queryFn: () => api.listScans(),
+    refetchInterval: 5000,
   })
 
+  // Map: competitor_id → active job status (derived from DB, not local state)
+  const activeJobsByCompetitor = new Map<string, 'pending' | 'picked'>()
+  for (const job of activeJobs ?? []) {
+    activeJobsByCompetitor.set(job.competitor_id, job.status)
+  }
+
   const handleScan = async (competitorId: string) => {
+    if (activeJobsByCompetitor.has(competitorId)) return
     try {
       await api.triggerScan(competitorId)
+      // Immediately refresh active jobs so spinner appears without waiting for next poll
+      queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
     } catch {
-      // Could show a toast, for now silent
+      // silent — server error will be reflected on next poll
     }
   }
 
@@ -166,6 +203,7 @@ export function Dashboard() {
               competitor={comp}
               latestScan={latestByCompetitor.get(comp.id)}
               onScan={() => handleScan(comp.id)}
+              jobStatus={activeJobsByCompetitor.get(comp.id) ?? null}
             />
           ))}
         </div>

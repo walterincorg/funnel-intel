@@ -1,3 +1,7 @@
+import logging
+import threading
+import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,9 +12,29 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import GIT_COMMIT
 from backend.routers import competitors, scans, pricing, compare, ads
 
+log = logging.getLogger(__name__)
 STARTUP_TIME = datetime.now(timezone.utc).isoformat()
 
-app = FastAPI(title="Funnel Intel", version="0.1.0")
+
+def _worker_supervisor():
+    """Runs the worker loop and restarts it if it crashes."""
+    from backend.worker.loop import main as worker_main
+    while True:
+        try:
+            worker_main()
+        except Exception:
+            log.exception("Worker crashed — restarting in 5s")
+            time.sleep(5)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    t = threading.Thread(target=_worker_supervisor, daemon=True, name="worker")
+    t.start()
+    yield
+
+
+app = FastAPI(title="Funnel Intel", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

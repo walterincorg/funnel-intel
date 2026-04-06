@@ -56,6 +56,16 @@ def compute_signals(competitor_id: str, today_ads: list[dict], today: date) -> l
     )
     existing_winner_ad_ids = {row["ad_id"] for row in existing_winners_res.data}
 
+    # Load existing failed_test signals to avoid duplicates
+    existing_failed_res = (
+        db.table("ad_signals")
+        .select("ad_id")
+        .eq("competitor_id", competitor_id)
+        .eq("signal_type", "failed_test")
+        .execute()
+    )
+    existing_failed_ad_ids = {row["ad_id"] for row in existing_failed_res.data}
+
     for ad in today_ads:
         meta_ad_id = ad["meta_ad_id"]
         if not meta_ad_id:
@@ -64,9 +74,11 @@ def compute_signals(competitor_id: str, today_ads: list[dict], today: date) -> l
         ad_db_id = existing_map.get(meta_ad_id)
 
         # --- Signal: new_ad ---
-        if meta_ad_id not in existing_map:
+        is_new = meta_ad_id not in existing_map
+        if is_new:
             signals.append({
                 "competitor_id": competitor_id,
+                "ad_id": ad_db_id,  # included so the UI can open the creative modal
                 "signal_type": "new_ad",
                 "severity": "medium",
                 "title": f"New ad detected: {ad.get('headline') or meta_ad_id[:20]}",
@@ -74,10 +86,9 @@ def compute_signals(competitor_id: str, today_ads: list[dict], today: date) -> l
                 "metadata": {"meta_ad_id": meta_ad_id, "media_type": ad.get("media_type")},
                 "signal_date": today.isoformat(),
             })
-            continue  # skip other signals for brand-new ads
 
         # --- Signal: proven_winner ---
-        if (
+        if not is_new and (
             ad.get("status") == "ACTIVE"
             and ad.get("start_date")
             and ad_db_id
@@ -100,7 +111,7 @@ def compute_signals(competitor_id: str, today_ads: list[dict], today: date) -> l
                 pass
 
         # --- Signal: copy_change ---
-        if ad_db_id and ad_db_id in yesterday_map:
+        if not is_new and ad_db_id and ad_db_id in yesterday_map:
             prev = yesterday_map[ad_db_id]
             changes = []
             if ad.get("headline") and prev.get("headline") and ad["headline"] != prev["headline"]:
@@ -120,7 +131,7 @@ def compute_signals(competitor_id: str, today_ads: list[dict], today: date) -> l
                 })
 
         # --- Signal: platform_expansion ---
-        if ad_db_id and ad_db_id in yesterday_map:
+        if not is_new and ad_db_id and ad_db_id in yesterday_map:
             prev_platforms = set(yesterday_map[ad_db_id].get("platforms") or [])
             curr_platforms = set(ad.get("platforms") or [])
             new_platforms = curr_platforms - prev_platforms
@@ -140,6 +151,7 @@ def compute_signals(competitor_id: str, today_ads: list[dict], today: date) -> l
         if (
             ad.get("status") != "ACTIVE"
             and ad.get("start_date")
+            and ad_db_id not in existing_failed_ad_ids
         ):
             try:
                 start = date.fromisoformat(str(ad["start_date"])[:10])

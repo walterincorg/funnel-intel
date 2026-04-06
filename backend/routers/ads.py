@@ -74,10 +74,15 @@ def trigger_scrape():
     """Manually trigger an ad scrape by inserting a pending run."""
     from datetime import datetime, timezone
 
+    db = get_db()
+
+    # Clean up stale pending/running rows so the worker doesn't double-fire
+    db.table("ad_scrape_runs").update({"status": "cancelled"}).in_("status", ["pending", "running"]).execute()
+
     run = (
-        get_db()
+        db
         .table("ad_scrape_runs")
-        .insert({"status": "pending", "started_at": datetime.now(timezone.utc).isoformat()})
+        .insert({"status": "pending"})
         .execute()
         .data[0]
     )

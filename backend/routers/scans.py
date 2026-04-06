@@ -1,8 +1,22 @@
 from fastapi import APIRouter, HTTPException
 from backend.db import get_db
 from backend.models import ScanRunOut, ScanStepOut, ScanTrigger
+from typing import Any
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
+
+
+@router.get("/jobs/active")
+def list_active_jobs() -> list[dict[str, Any]]:
+    """Return all pending or picked jobs so the UI can show accurate button state."""
+    res = (
+        get_db()
+        .table("scan_jobs")
+        .select("id,competitor_id,status,created_at,picked_at")
+        .in_("status", ["pending", "picked"])
+        .execute()
+    )
+    return res.data
 
 
 @router.get("", response_model=list[ScanRunOut])
@@ -37,14 +51,27 @@ def get_scan_steps(run_id: str):
 @router.post("/trigger", status_code=201)
 def trigger_scan(body: ScanTrigger):
     """Enqueue a new scan job for a competitor."""
+    db = get_db()
+
     # Verify competitor exists
-    comp = get_db().table("competitors").select("id").eq("id", body.competitor_id).single().execute()
+    comp = db.table("competitors").select("id").eq("id", body.competitor_id).single().execute()
     if not comp.data:
         raise HTTPException(404, "Competitor not found")
 
+    # Dedup: return existing job if one is already pending or picked
+    existing = (
+        db.table("scan_jobs")
+        .select("id,status")
+        .eq("competitor_id", body.competitor_id)
+        .in_("status", ["pending", "picked"])
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return {"job_id": existing.data[0]["id"], "status": existing.data[0]["status"]}
+
     res = (
-        get_db()
-        .table("scan_jobs")
+        db.table("scan_jobs")
         .insert({"competitor_id": body.competitor_id, "priority": body.priority, "status": "pending"})
         .execute()
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+import time
 from datetime import datetime, timezone
 import requests
 
@@ -11,6 +12,8 @@ log = logging.getLogger(__name__)
 
 APIFY_BASE = "https://api.apify.com/v2"
 SYNC_TIMEOUT = 300  # seconds — Apify sync endpoint blocks until done
+MAX_RETRIES = 2
+RETRY_DELAY = 5  # seconds between retries
 
 
 def scrape_competitor_ads(ads_library_url: str) -> list[dict]:
@@ -25,17 +28,26 @@ def scrape_competitor_ads(ads_library_url: str) -> list[dict]:
     actor_id = APIFY_ADS_ACTOR_ID.replace("/", "~")
     url = f"{APIFY_BASE}/acts/{actor_id}/run-sync-get-dataset-items"
 
-    resp = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {APIFY_API_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "urls": [{"url": ads_library_url}],
-        },
-        timeout=SYNC_TIMEOUT,
-    )
+    headers = {
+        "Authorization": f"Bearer {APIFY_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {"urls": [{"url": ads_library_url}]}
+
+    resp = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=SYNC_TIMEOUT)
+            if resp.status_code < 500:
+                break
+            log.warning("Apify returned %d on attempt %d", resp.status_code, attempt + 1)
+        except requests.Timeout:
+            log.warning("Apify timeout on attempt %d", attempt + 1)
+            if attempt == MAX_RETRIES:
+                raise
+        if attempt < MAX_RETRIES:
+            time.sleep(RETRY_DELAY)
+
     resp.raise_for_status()
 
     items = resp.json()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 import logging
-import signal
 import time
 from datetime import datetime, timezone
 
@@ -19,14 +18,32 @@ POLL_INTERVAL = 10  # seconds
 _shutdown = False
 
 
-def _handle_signal(sig, frame):
-    global _shutdown
-    log.info("Received signal %s, shutting down gracefully...", sig)
-    _shutdown = True
+def cleanup_stale_jobs():
+    """On startup, mark any picked/running rows as failed (left by a dead worker)."""
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
 
+    stale_runs = db.table("scan_runs").update({
+        "status": "failed",
+        "completed_at": now,
+        "summary": {"error": "Worker restarted — scan was interrupted"},
+    }).eq("status", "running").execute()
 
-signal.signal(signal.SIGTERM, _handle_signal)
-signal.signal(signal.SIGINT, _handle_signal)
+    stale_jobs = db.table("scan_jobs").update({
+        "status": "failed",
+    }).eq("status", "picked").execute()
+
+    stale_scrapes = db.table("ad_scrape_runs").update({
+        "status": "failed",
+        "completed_at": now,
+        "error": "Worker restarted — scrape was interrupted",
+    }).in_("status", ["running", "pending"]).execute()
+
+    n_runs = len(stale_runs.data) if stale_runs.data else 0
+    n_jobs = len(stale_jobs.data) if stale_jobs.data else 0
+    n_scrapes = len(stale_scrapes.data) if stale_scrapes.data else 0
+    if n_runs or n_jobs or n_scrapes:
+        log.warning("Cleaned up %d stale runs, %d stale jobs, %d stale ad scrapes from previous worker", n_runs, n_jobs, n_scrapes)
 
 
 def pick_job() -> dict | None:
@@ -217,6 +234,7 @@ def process_job(job: dict):
 
 def main():
     log.info("Worker started, polling every %ds", POLL_INTERVAL)
+    cleanup_stale_jobs()
     while not _shutdown:
         job = pick_job()
         if job:

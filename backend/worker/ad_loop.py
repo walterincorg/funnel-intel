@@ -69,13 +69,28 @@ def maybe_run_ad_scrape():
 def _run_ad_scrape(today: date):
     """Execute the full ad scrape pipeline for all competitors."""
     db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
 
-    # Create scrape run record
-    run = db.table("ad_scrape_runs").insert({
-        "status": "running",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-    }).execute().data[0]
-    run_id = run["id"]
+    # Claim an existing pending row (from manual trigger) or create a new running row
+    pending = (
+        db.table("ad_scrape_runs")
+        .select("id")
+        .eq("status", "pending")
+        .limit(1)
+        .execute()
+    )
+    if pending.data:
+        run_id = pending.data[0]["id"]
+        db.table("ad_scrape_runs").update({
+            "status": "running",
+            "started_at": now,
+        }).eq("id", run_id).execute()
+    else:
+        run = db.table("ad_scrape_runs").insert({
+            "status": "running",
+            "started_at": now,
+        }).execute().data[0]
+        run_id = run["id"]
 
     total_ads = 0
     total_signals = 0

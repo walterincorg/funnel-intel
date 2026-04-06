@@ -1,5 +1,19 @@
 # Backlog
 
+## Nice to Have: Settings Page
+
+A UI page to configure worker and scrape behaviour without touching env vars or code.
+
+**Fields to expose:**
+- Scan timeout (currently hardcoded `SCAN_TIMEOUT = 45min` in `loop.py`)
+- Max steps per scan (currently `max_steps: 100` in `strategies.py`)
+- Ad scrape hour UTC (currently `AD_SCRAPE_HOUR_UTC = 6` env var)
+- Apify max results cap per competitor (currently no cap — see Apify cost backlog item)
+- Apify country filter (currently no filter)
+- Poll interval (currently `POLL_INTERVAL = 10s`)
+
+**Approach:** Store settings in a `settings` table in Supabase (key/value or single-row JSON). Worker reads on startup (or per-job). Frontend has a Settings page with form inputs.
+
 ## Gate Detection & Skip System
 
 When the agent encounters something it can't complete, it currently tries to hack around it (e.g. fetch interceptors for palm scans), wasting steps and sometimes crashing the funnel.
@@ -82,3 +96,20 @@ TodayIsTheDay failed on first scrape with `TimeoutError: The read operation time
 **Affected competitors:** The majority of our list uses `view_all_page_id` (page-based search), which is slower than keyword search because Meta looks up all ads from a specific Facebook page rather than doing a text index lookup. Affected: TodayIsTheDay, RISE SCIENCE, BetterMe (Mental Health, Men, Wall Pilates, Treadmill, Meal Plan), Nebula, Woofz, DR. SQUATCH, Happy Mammoth, Savvy Finds, MOERIE, Bioma Health.
 
 Keyword-based search (`search_type=keyword_exact_phrase`) is faster but fragile — if a brand changes their domain the search breaks. Page ID is more reliable long-term but slower.
+
+## Structured Logging System
+
+Currently using basic `logging.getLogger()` with no structured output, no log aggregation, and no way to trace failures across the scrape pipeline. When something breaks (Apify timeout, DB insert failure, LLM analysis error), diagnosing requires SSH-ing into the VPS and grepping through unstructured log files.
+
+**What we need:**
+- Structured JSON logging so every log line includes context (competitor_id, scrape_run_id, step name, duration)
+- Log levels used consistently: ERROR for failures that stop a competitor's scrape, WARNING for retries/skips, INFO for normal progress
+- A way to trace a single scrape run end-to-end: which competitors succeeded, which failed, where they failed, and why
+- Persistent log storage beyond the current systemd journal rotation
+
+**Options to evaluate:**
+- **Minimal:** Switch to `structlog` or `python-json-logger` for structured JSON output, ship logs to a file with rotation, add a `/api/logs` endpoint for recent errors
+- **Managed:** Ship structured logs to a free-tier service (Betterstack, Axiom, or Grafana Cloud) for search, filtering, and alerting
+- **Self-hosted:** Loki + Grafana on the VPS (heavier but no external dependency)
+
+**Why it matters:** The ad scraping pipeline runs unattended on a schedule. When a competitor fails silently (like the TodayIsTheDay timeout), we don't know until someone manually checks. Structured logs with alerting on ERROR-level events would catch these immediately.

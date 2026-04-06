@@ -135,6 +135,25 @@ export interface AdSignalSummary {
   count: number
 }
 
+export interface AdSnapshot {
+  id: string
+  ad_id: string
+  competitor_id: string
+  captured_date: string
+  status: string | null
+  body_text: string | null
+  headline: string | null
+  cta: string | null
+  image_url: string | null
+  video_url: string | null
+  start_date: string | null
+  stop_date: string | null
+  platforms: string[] | null
+  impression_range: unknown | null
+  landing_page_url: string | null
+  created_at: string
+}
+
 export interface AdScrapeRun {
   id: string
   status: string
@@ -145,6 +164,14 @@ export interface AdScrapeRun {
   completed_at: string | null
   error: string | null
   created_at: string
+}
+
+export interface ScanJob {
+  id: string
+  competitor_id: string
+  status: 'pending' | 'picked'
+  created_at: string
+  picked_at: string | null
 }
 
 export interface Version {
@@ -175,6 +202,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ competitor_id: competitorId }),
     }),
+  listActiveJobs: () => request<ScanJob[]>('/scans/jobs/active'),
 
   // Pricing
   listPricing: (competitorId?: string) =>
@@ -189,7 +217,7 @@ export const api = {
   listAds: (competitorId?: string) =>
     request<Ad[]>(competitorId ? `/ads?competitor_id=${competitorId}` : '/ads'),
   getAd: (id: string) => request<Ad>(`/ads/${id}`),
-  getAdSnapshots: (adId: string) => request<unknown[]>(`/ads/${adId}/snapshots`),
+  getAdSnapshots: (adId: string) => request<AdSnapshot[]>(`/ads/${adId}/snapshots`),
   listAdSignals: (params?: { competitor_id?: string; signal_type?: string; days?: number }) => {
     const qs = new URLSearchParams()
     if (params?.competitor_id) qs.set('competitor_id', params.competitor_id)

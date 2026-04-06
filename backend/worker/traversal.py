@@ -168,6 +168,9 @@ async def run_traversal(
     }
 
 
+SCAN_TIMEOUT = 45 * 60  # 45 minutes — raise asyncio.TimeoutError if exceeded
+
+
 def run_traversal_sync(
     competitor_name: str,
     funnel_url: str,
@@ -176,4 +179,5 @@ def run_traversal_sync(
     on_progress: callable | None = None,
 ) -> dict:
     """Synchronous wrapper for run_traversal."""
-    return asyncio.run(run_traversal(competitor_name, funnel_url, config, baseline_steps, on_progress))
+    coro = run_traversal(competitor_name, funnel_url, config, baseline_steps, on_progress)
+    return asyncio.run(asyncio.wait_for(coro, timeout=SCAN_TIMEOUT))
