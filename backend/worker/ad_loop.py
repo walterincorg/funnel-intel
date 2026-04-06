@@ -55,7 +55,7 @@ def maybe_run_ad_scrape():
     if now.hour < AD_SCRAPE_HOUR_UTC:
         return
 
-    # Check if already ran today
+    # Check if already ran today (completed or running)
     existing = (
         db.table("ad_scrape_runs")
         .select("id, status")
@@ -65,6 +65,17 @@ def maybe_run_ad_scrape():
         .execute()
     )
     if existing.data:
+        return
+
+    # Stop retrying after 3 failures today (prevents infinite loop on persistent errors)
+    failed_today = (
+        db.table("ad_scrape_runs")
+        .select("id")
+        .gte("created_at", today.isoformat())
+        .eq("status", "failed")
+        .execute()
+    )
+    if len(failed_today.data) >= 3:
         return
 
     log.info("Starting daily ad scrape for %s", today)
