@@ -205,6 +205,14 @@ export function Compare() {
           Select two different runs to compare.
         </div>
       )}
+
+      {!comparison && !comparing && !runAId && !runBId && (
+        <div className="bg-bg-card rounded-xl border border-border/50 p-12 text-center">
+          <RefreshCw size={32} className="mx-auto text-text/20 mb-3" />
+          <p className="text-text/50 font-medium">Pick a competitor and two runs to compare</p>
+          <p className="text-sm text-text/30 mt-1">You'll see a step-by-step diff showing what changed in the funnel between runs.</p>
+        </div>
+      )}
     </div>
   )
 }
