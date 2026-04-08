@@ -111,7 +111,7 @@ export function Competitors() {
                   className="text-xs text-accent/70 hover:text-accent flex items-center gap-1 mt-0.5"
                   onClick={e => e.stopPropagation()}
                 >
-                  {comp.funnel_url} <ExternalLink size={10} />
+                  {new URL(comp.funnel_url).hostname + new URL(comp.funnel_url).pathname} <ExternalLink size={10} />
                 </a>
               </div>
               <button
