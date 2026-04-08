@@ -63,7 +63,7 @@ function CompetitorCard({ competitor, latestScan, onScan, jobStatus }: {
           onClick={onScan}
           disabled={isActive}
           className={cn(
-            'p-2 rounded-lg transition-colors',
+            'p-2.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center',
             isActive
               ? 'bg-accent/5 text-accent/40 cursor-not-allowed'
               : 'bg-accent/10 text-accent hover:bg-accent/20'
@@ -102,7 +102,7 @@ function CompetitorCard({ competitor, latestScan, onScan, jobStatus }: {
           )}
           <button
             onClick={() => navigate(`/scans/${latestScan.id}`)}
-            className="flex items-center gap-1 text-xs text-accent hover:underline mt-1"
+            className="flex items-center gap-1 text-xs text-accent hover:underline mt-1 min-h-[44px] py-2"
           >
             View scan <ArrowRight size={12} />
           </button>
