@@ -1,5 +1,25 @@
 # Backlog
 
+## Ad Tracking: Verify 200-Ad Cap Actually Returns Top Ads
+
+We cap at `limitPerSource: 200` per competitor. The actor's input schema says `scrapePageAds.sortBy` defaults to `impressions_desc`. But we tested this and **cannot confirm the sort is working**:
+
+**What we know:**
+- `limitPerSource: 10` returned 30 ads (overshoots ~3x, not "up to 30" as docs claim)
+- The returned ads are NOT sorted by start_date, suggesting some other sort is applied
+- `eu_total_reach` / impression data is **null in the response**, so we can't verify the sort order
+- We're trusting the actor to sort by impressions before truncating, but have no proof
+
+**What we need to verify:**
+1. Run one competitor (e.g. Bioma Health) without `limitPerSource` to get ALL ads
+2. Run the same competitor with `limitPerSource: 200`
+3. Compare: are the capped 200 a subset of the top 200 by longevity/impressions? Or are long-running proven winners (30d+) missing from the capped set?
+4. Check if the 3x overshoot is consistent (does `limitPerSource: 200` return ~600?)
+
+**Risk:** If the sort doesn't work, we're getting an arbitrary 200-600 ads instead of the most important ones. The LLM analysis quality depends on having the right ads.
+
+**Cost of verification:** One uncapped run for a large competitor costs ~$0.50. Worth it to validate the whole pipeline.
+
 ## Nice to Have: Settings Page
 
 A UI page to configure worker and scrape behaviour without touching env vars or code.

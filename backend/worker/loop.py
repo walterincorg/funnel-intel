@@ -166,16 +166,18 @@ def process_job(job: dict):
 
         progress_log = _progress_log_buffer
 
-        # Store pricing if captured
-        if result["pricing"]:
+        # Store pricing if captured (skip empty snapshots where agent tagged
+        # a page as pricing but extracted no actual plan/discount/trial data)
+        pricing = result["pricing"]
+        if pricing and any(pricing.get(k) for k in ("plans", "discounts", "trial_info")):
             db.table("pricing_snapshots").insert({
                 "run_id": run_id,
                 "competitor_id": competitor_id,
-                "plans": result["pricing"].get("plans"),
-                "discounts": result["pricing"].get("discounts"),
-                "trial_info": result["pricing"].get("trial_info"),
-                "captured_at_step": result["pricing"].get("step_number"),
-                "url": result["pricing"].get("url"),
+                "plans": pricing.get("plans"),
+                "discounts": pricing.get("discounts"),
+                "trial_info": pricing.get("trial_info"),
+                "captured_at_step": pricing.get("step_number"),
+                "url": pricing.get("url"),
             }).execute()
 
         # Update run as completed
