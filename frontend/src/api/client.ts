@@ -118,6 +118,18 @@ export interface ChatResponse {
 
 export type ChatModelPreset = 'basic' | 'advanced' | 'expert' | 'genius'
 
+export interface ComposioToolkit {
+  slug: string
+  name: string
+  logo?: string
+  description: string
+}
+
+export interface ComposioConnectResponse {
+  redirect_url?: string
+  connected_account_id?: string
+}
+
 // --- API Functions ---
 
 export const api = {
@@ -165,5 +177,18 @@ export const api = {
       method: 'POST',
       signal,
       body: JSON.stringify({ message, history, model_preset: modelPreset }),
+    }),
+
+  // Composio
+  listComposioToolkits: (search = '') =>
+    request<{ items: ComposioToolkit[] }>(`/composio/toolkits?search=${encodeURIComponent(search)}`),
+  connectComposioToolkit: (toolkitSlug: string, userId: string, callbackUrl: string) =>
+    request<ComposioConnectResponse>('/composio/connect', {
+      method: 'POST',
+      body: JSON.stringify({
+        toolkit_slug: toolkitSlug,
+        user_id: userId,
+        callback_url: callbackUrl,
+      }),
     }),
 }

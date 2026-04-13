@@ -28,6 +28,9 @@ OPENROUTER_MODEL_ADVANCED = os.getenv("OPENROUTER_MODEL_ADVANCED", "anthropic/cl
 OPENROUTER_MODEL_EXPERT = os.getenv("OPENROUTER_MODEL_EXPERT", "anthropic/claude-opus-4")
 OPENROUTER_MODEL_GENIUS = os.getenv("OPENROUTER_MODEL_GENIUS", "anthropic/claude-opus-4")
 
+# Composio
+COMPOSIO_API_KEY = os.getenv("COMPOSIO_API_KEY", "")
+
 # Version
 try:
     GIT_COMMIT = subprocess.check_output(

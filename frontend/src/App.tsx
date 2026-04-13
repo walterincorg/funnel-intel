@@ -3,14 +3,14 @@ import {
   Cable,
   Check,
   ChevronUp,
+  ChevronsLeft,
+  ChevronsRight,
   Plus,
   Link2,
   Paperclip,
-  Phone,
   Search,
   Settings,
   Sparkles,
-  SquareTerminal,
   X,
 } from 'lucide-react'
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
@@ -29,6 +29,7 @@ type ConnectionsTab = 'Apps' | 'Custom API' | 'Custom MCP'
 
 type ConnectionItem = {
   id: string
+  slug: string
   name: string
   description: string
   logo?: string
@@ -45,7 +46,19 @@ type ModelOption = {
 type ChatThread = {
   id: string
   title: string
-  messages: ChatMessage[]
+  messages: LocalChatMessage[]
+}
+
+type ChatAttachment = {
+  name: string
+  url: string
+  mimeType: string
+}
+
+type LocalChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+  attachments?: ChatAttachment[]
 }
 
 function integrationClass(integration: string): string {
@@ -55,41 +68,49 @@ function integrationClass(integration: string): string {
 const fallbackConnections: ConnectionItem[] = [
   {
     id: 'gmail',
+    slug: 'gmail',
     name: 'Gmail',
     description: 'An integration with Gmail for reading, searching, and sending emails.',
   },
   {
     id: 'google-calendar',
+    slug: 'google-calendar',
     name: 'Google Calendar',
     description: "Allows viewing and modifying a user's calendar schedule.",
   },
   {
     id: 'google-drive',
+    slug: 'google-drive',
     name: 'Google Drive',
     description: 'Allows search and file access, plus docs and sheets editing.',
   },
   {
     id: 'slack',
+    slug: 'slack',
     name: 'Slack',
     description: 'An integration with the Slack team messaging platform.',
   },
   {
     id: 'notion',
+    slug: 'notion',
     name: 'Notion',
     description: 'Access and manage your Notion workspace pages and databases.',
   },
   {
     id: 'notion-database',
+    slug: 'notion-database',
     name: 'Notion Database',
     description: 'Query Notion databases with filtering, sorting, and pagination.',
   },
   {
     id: 'hubspot',
+    slug: 'hubspot',
     name: 'HubSpot',
     description: 'CRM integration for managing contacts and companies.',
   },
   {
     id: 'github',
+    slug: 'github',
     name: 'GitHub',
     description: 'Source code management integration for repositories and issues.',
   },
@@ -398,21 +419,23 @@ export default function App() {
   const [connectionsSearch, setConnectionsSearch] = useState('')
   const [connectionsLoading, setConnectionsLoading] = useState(false)
   const [connectionsError, setConnectionsError] = useState<string | null>(null)
+  const [connectingToolkitSlug, setConnectingToolkitSlug] = useState<string | null>(null)
   const [connections, setConnections] = useState<ConnectionItem[]>(fallbackConnections)
   const [chatThreads, setChatThreads] = useState<ChatThread[]>(initialThreads)
   const [activeChatId, setActiveChatId] = useState(initialThreads[0].id)
   const [isHomeView, setIsHomeView] = useState(true)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [chatSearch, setChatSearch] = useState('')
   const [chatError, setChatError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
   const [selectedModelPreset, setSelectedModelPreset] = useState<ChatModelPreset>('advanced')
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
   const requestAbortRef = useRef<AbortController | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const activeCards = useCasesByTab[activeTab]
   const canSend = composerText.trim().length > 0
-  const composioApiKey = (import.meta.env.VITE_COMPOSIO_API_KEY as string | undefined)?.trim()
 
   const shownConnections = useMemo(() => {
     if (!connectionsSearch.trim()) {
@@ -464,24 +487,34 @@ export default function App() {
     const shouldCreateFromHome = isHomeView || !activeThread
     let currentThreadId = activeThread?.id ?? ''
     let history: ChatMessage[] = []
+    const attachmentsForMessage = [...pendingAttachments]
 
     if (shouldCreateFromHome) {
       const newThread: ChatThread = {
         id: `thread-${Date.now()}`,
         title: createThreadTitle(message),
-        messages: [{ role: 'user', content: message }],
+        messages: [{ role: 'user', content: message, attachments: attachmentsForMessage }],
       }
       currentThreadId = newThread.id
       setChatThreads((prev) => [newThread, ...prev])
       setActiveChatId(newThread.id)
       setIsHomeView(false)
     } else if (activeThread) {
-      history = activeThread.messages.slice(-8)
+      history = activeThread.messages.slice(-8).map((entry) => ({
+        role: entry.role,
+        content: entry.content,
+      }))
       currentThreadId = activeThread.id
       setChatThreads((prev) =>
         prev.map((thread) =>
           thread.id === currentThreadId
-            ? { ...thread, messages: [...thread.messages, { role: 'user', content: message }] }
+            ? {
+                ...thread,
+                messages: [
+                  ...thread.messages,
+                  { role: 'user', content: message, attachments: attachmentsForMessage },
+                ],
+              }
             : thread,
         ),
       )
@@ -492,6 +525,7 @@ export default function App() {
     const abortController = new AbortController()
     requestAbortRef.current = abortController
     setComposerText('')
+    setPendingAttachments([])
 
     try {
       const response = await api.chat(message, history, selectedModelPreset, abortController.signal)
@@ -536,7 +570,35 @@ export default function App() {
   }
 
   function onAttachSelected(event: ChangeEvent<HTMLInputElement>): void {
+    const selectedFiles = Array.from(event.target.files ?? [])
+    if (selectedFiles.length === 0) {
+      event.target.value = ''
+      return
+    }
+
+    const imageAttachments = selectedFiles
+      .filter((file) => file.type.startsWith('image/'))
+      .map((file) => ({
+        name: file.name,
+        url: URL.createObjectURL(file),
+        mimeType: file.type,
+      }))
+
+    if (imageAttachments.length > 0) {
+      setPendingAttachments((prev) => [...prev, ...imageAttachments])
+    }
+
     event.target.value = ''
+  }
+
+  function removePendingAttachment(index: number): void {
+    setPendingAttachments((prev) => {
+      const target = prev[index]
+      if (target) {
+        URL.revokeObjectURL(target.url)
+      }
+      return prev.filter((_, i) => i !== index)
+    })
   }
 
   function openConnectionsModal(): void {
@@ -544,54 +606,46 @@ export default function App() {
     setIsConnectionsMenuOpen(false)
   }
 
+  function onNavigateHome(): void {
+    setIsHomeView(true)
+    setChatError(null)
+  }
+
+  async function onConnectToolkit(item: ConnectionItem): Promise<void> {
+    setConnectingToolkitSlug(item.slug)
+    setConnectionsError(null)
+    try {
+      const result = await api.connectComposioToolkit(
+        item.slug,
+        `walter-user-${activeChatId}`,
+        window.location.href,
+      )
+      if (result.redirect_url) {
+        window.open(result.redirect_url, '_blank', 'noopener,noreferrer')
+      } else {
+        setConnectionsError(`Connection created for ${item.name}, but no redirect URL was returned.`)
+      }
+    } catch (error) {
+      console.error(error)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      setConnectionsError(`Could not start connection for ${item.name}. ${message}`)
+    } finally {
+      setConnectingToolkitSlug(null)
+    }
+  }
+
   useEffect(() => {
     if (!isConnectionsModalOpen || connectionsTab !== 'Apps') {
       return
     }
 
-    const apiKey = composioApiKey
-    if (!apiKey) {
-      setConnectionsError('Set VITE_COMPOSIO_API_KEY in frontend/.env.local to load live apps.')
-      setConnections(fallbackConnections)
-      return
-    }
-
-    const controller = new AbortController()
-    const query = connectionsSearch.trim()
-    const params = new URLSearchParams({
-      limit: '24',
-      sort_by: 'alphabetically',
-      include_deprecated: 'false',
-    })
-    if (query) {
-      params.set('search', query)
-    }
+    let isCancelled = false
 
     async function fetchConnections(): Promise<void> {
       setConnectionsLoading(true)
       setConnectionsError(null)
       try {
-        const response = await fetch(`https://backend.composio.dev/api/v3.1/toolkits?${params}`, {
-          headers: {
-            'x-api-key': apiKey!,
-          },
-          signal: controller.signal,
-        })
-
-        if (!response.ok) {
-          throw new Error(`Composio responded with ${response.status}`)
-        }
-
-        const payload = (await response.json()) as {
-          items?: Array<{
-            slug: string
-            name: string
-            logo?: string
-            app_url?: string
-            description?: string
-          }>
-        }
-
+        const payload = await api.listComposioToolkits(connectionsSearch.trim())
         const items = payload.items ?? []
         if (items.length === 0) {
           setConnections(fallbackConnections)
@@ -601,13 +655,14 @@ export default function App() {
         setConnections(
           items.map((item) => ({
             id: item.slug,
+            slug: item.slug,
             name: item.name,
             logo: item.logo,
-            description: item.description ?? item.app_url ?? `Connect ${item.name} with Walter.`,
+            description: item.description || `Connect ${item.name} with Walter.`,
           })),
         )
       } catch (error) {
-        if (controller.signal.aborted) {
+        if (isCancelled) {
           return
         }
 
@@ -615,7 +670,7 @@ export default function App() {
         setConnections(fallbackConnections)
         console.error(error)
       } finally {
-        if (!controller.signal.aborted) {
+        if (!isCancelled) {
           setConnectionsLoading(false)
         }
       }
@@ -624,12 +679,12 @@ export default function App() {
     void fetchConnections()
 
     return () => {
-      controller.abort()
+      isCancelled = true
     }
-  }, [composioApiKey, connectionsSearch, connectionsTab, isConnectionsModalOpen])
+  }, [connectionsSearch, connectionsTab, isConnectionsModalOpen])
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`.trim()}>
       <input
         ref={fileInputRef}
         className="hidden-file-input"
@@ -639,6 +694,26 @@ export default function App() {
         onChange={onAttachSelected}
       />
       <aside className="chat-sidebar">
+        <div className="sidebar-header">
+          <button
+            type="button"
+            className="sidebar-logo"
+            onClick={onNavigateHome}
+            aria-label="Go to home"
+            title="Go to home"
+          >
+            <img src="/walter-assets/walter-icon.png" alt="Walter icon" />
+          </button>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={() => setIsSidebarCollapsed((value) => !value)}
+            aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isSidebarCollapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
+          </button>
+        </div>
         <div className="sidebar-top">
           <button type="button" className="sidebar-new" onClick={onCreateNewAgent}>
             New agent
@@ -680,16 +755,14 @@ export default function App() {
 
       <div className={`workspace ${isHomeView ? '' : 'chat-mode'}`.trim()}>
         <div className="page">
+      <header className="workspace-brand">
+        <button type="button" className="workspace-brand-button" onClick={onNavigateHome}>
+          Walter
+        </button>
+      </header>
       {isHomeView ? (
         <>
       <section className="hero-shell">
-        <header className="topbar">
-          <div className="brand">
-            <img src="/walter-assets/walter-icon.png" alt="Walter icon" />
-            <span>Walter</span>
-          </div>
-        </header>
-
         <div className="hero-copy">
           <h1>What can I do for you?</h1>
           <span>You are trialing the Pro plan (3 days left) · Upgrade</span>
@@ -718,6 +791,23 @@ export default function App() {
               <ArrowUp size={15} />
             </button>
           </div>
+          {pendingAttachments.length > 0 && (
+            <div className="attachment-preview-row">
+              {pendingAttachments.map((attachment, index) => (
+                <figure key={`${attachment.url}-${index}`} className="attachment-preview">
+                  <img src={attachment.url} alt={attachment.name} />
+                  <button
+                    type="button"
+                    className="attachment-remove"
+                    onClick={() => removePendingAttachment(index)}
+                    aria-label={`Remove ${attachment.name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </figure>
+              ))}
+            </div>
+          )}
           <div className="composer-actions">
             <button type="button" aria-label="attach file" onClick={onAttachClick}>
               <Paperclip size={16} />
@@ -755,15 +845,6 @@ export default function App() {
                 </div>
               )}
             </div>
-            <button type="button" aria-label="computer">
-              <SquareTerminal size={16} />
-            </button>
-            <button type="button" aria-label="automations">
-              <Sparkles size={16} />
-            </button>
-            <button type="button" aria-label="phone">
-              <Phone size={16} />
-            </button>
             <div className="composer-spacer" />
             <div className="model-picker">
               <button
@@ -855,6 +936,15 @@ export default function App() {
           {chatMessages.map((message, index) => (
             <article key={`${message.role}-${index}`} className={`chat-message ${message.role}`}>
               <div>{message.content}</div>
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="chat-attachments">
+                  {message.attachments.map((attachment, attachmentIndex) => (
+                    <figure key={`${attachment.url}-${attachmentIndex}`} className="chat-attachment">
+                      <img src={attachment.url} alt={attachment.name} />
+                    </figure>
+                  ))}
+                </div>
+              )}
               {message.role === 'assistant' &&
                 message.content.toLowerCase().includes('virtual computer') && (
                   <div className="virtual-computer-card">
@@ -902,6 +992,23 @@ export default function App() {
                   <ArrowUp size={15} />
                 </button>
               </div>
+              {pendingAttachments.length > 0 && (
+                <div className="attachment-preview-row">
+                  {pendingAttachments.map((attachment, index) => (
+                    <figure key={`${attachment.url}-${index}`} className="attachment-preview">
+                      <img src={attachment.url} alt={attachment.name} />
+                      <button
+                        type="button"
+                        className="attachment-remove"
+                        onClick={() => removePendingAttachment(index)}
+                        aria-label={`Remove ${attachment.name}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </figure>
+                  ))}
+                </div>
+              )}
               <div className="composer-actions">
                 <button type="button" aria-label="attach file" onClick={onAttachClick}>
                   <Paperclip size={16} />
@@ -939,15 +1046,6 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <button type="button" aria-label="computer">
-                  <SquareTerminal size={16} />
-                </button>
-                <button type="button" aria-label="automations">
-                  <Sparkles size={16} />
-                </button>
-                <button type="button" aria-label="phone">
-                  <Phone size={16} />
-                </button>
                 <div className="composer-spacer" />
                 <div className="model-picker">
                   <button
@@ -1043,7 +1141,19 @@ export default function App() {
                 {connectionsLoading && <div className="modal-loading">Loading Composio apps...</div>}
                 <div className="connections-grid">
                   {shownConnections.map((item) => (
-                    <article key={item.id} className="connection-card">
+                    <article
+                      key={item.id}
+                      className={`connection-card ${connectingToolkitSlug === item.slug ? 'connecting' : ''}`}
+                      onClick={() => void onConnectToolkit(item)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          void onConnectToolkit(item)
+                        }
+                      }}
+                    >
                       <div className={`app-logo ${integrationClass(item.name)}`}>
                         {item.logo ? (
                           <img src={item.logo} alt={`${item.name} logo`} />
@@ -1054,6 +1164,9 @@ export default function App() {
                       <div>
                         <h3>{item.name}</h3>
                         <p>{item.description}</p>
+                        <span className="connect-action">
+                          {connectingToolkitSlug === item.slug ? 'Connecting...' : 'Connect'}
+                        </span>
                       </div>
                     </article>
                   ))}
