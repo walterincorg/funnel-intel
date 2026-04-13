@@ -67,7 +67,7 @@ function integrationClass(integration: string): string {
 
 const virtualComputerToolkitHints: Array<{ slug: string; name: string; patterns: string[] }> = [
   { slug: 'zapier', name: 'Zapier', patterns: ['zapier'] },
-  { slug: 'make', name: 'Make', patterns: ['make.com', ' make '] },
+  { slug: 'make', name: 'Make', patterns: ['make.com'] },
   { slug: 'slack', name: 'Slack', patterns: ['slack'] },
   { slug: 'hubspot', name: 'HubSpot', patterns: ['hubspot'] },
   { slug: 'gmail', name: 'Gmail', patterns: ['gmail'] },
@@ -83,10 +83,10 @@ const virtualComputerToolkitHints: Array<{ slug: string; name: string; patterns:
 ]
 
 function inferVirtualComputerToolkits(messageContent: string): ConnectionItem[] {
-  const normalized = ` ${messageContent.toLowerCase()} `
+  const normalized = messageContent.toLowerCase()
   return virtualComputerToolkitHints
     .filter((candidate) =>
-      candidate.patterns.some((pattern) => normalized.includes(` ${pattern.trim().toLowerCase()} `)),
+      candidate.patterns.some((pattern) => normalized.includes(pattern.trim().toLowerCase())),
     )
     .map((candidate) => ({
       id: candidate.slug,
@@ -1028,8 +1028,8 @@ export default function App() {
                       {requiredToolkits.length > 0 && (
                         <div className="tool-connect-card">
                           <div className="vc-ready">
-                            <strong>Connect recommended tools</strong>
-                            <span>Use Composio links first, then continue the workflow.</span>
+                            <strong>Connect with Composio</strong>
+                            <span>Use these in-chat connect links first, then continue the workflow.</span>
                           </div>
                           <div className="vc-tool-list">
                             {requiredToolkits.map((toolkit) => {
@@ -1042,7 +1042,9 @@ export default function App() {
                                   onClick={() => void onConnectVirtualToolkit(cardKey, toolkit)}
                                   disabled={connected || connectingToolkitSlug === toolkit.slug}
                                 >
-                                  {connected ? `Connected: ${toolkit.name}` : `Connect ${toolkit.name}`}
+                                  {connected
+                                    ? `Connected: ${toolkit.name}`
+                                    : `Connect ${toolkit.name} via Composio`}
                                 </button>
                               )
                             })}
