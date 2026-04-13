@@ -638,6 +638,12 @@ export default function App() {
     setIsConnectionsMenuOpen(false)
   }
 
+  function openComposioOverview(): void {
+    setConnectionsTab('Apps')
+    setConnectionsSearch('')
+    openConnectionsModal()
+  }
+
   function onNavigateHome(): void {
     setIsHomeView(true)
     setChatError(null)
@@ -941,7 +947,9 @@ export default function App() {
           </div>
           <div className="composer-footer">
             <Link2 size={14} />
-            Connect to any App, API, or MCP
+            <button type="button" className="composer-footer-link" onClick={openComposioOverview}>
+              Connect to any App, API, or MCP
+            </button>
           </div>
         </div>
       </section>
@@ -1181,7 +1189,9 @@ export default function App() {
               </div>
               <div className="composer-footer">
                 <Link2 size={14} />
-                Connect to any App, API, or MCP
+                <button type="button" className="composer-footer-link" onClick={openComposioOverview}>
+                  Connect to any App, API, or MCP
+                </button>
               </div>
             </div>
           </div>

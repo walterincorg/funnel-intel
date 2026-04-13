@@ -568,6 +568,16 @@ button {
   align-items: center;
 }
 
+.composer-footer-link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .chat-thread {
   margin: 24px auto 8px;
   max-width: 760px;
