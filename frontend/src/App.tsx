@@ -128,7 +128,34 @@ const modelOptions: ModelOption[] = [
   },
 ]
 
+const INTEL_THREAD_ID = 'thread-intel'
+
 const initialThreads: ChatThread[] = [
+  {
+    id: INTEL_THREAD_ID,
+    title: 'Competitor Intel',
+    messages: [
+      {
+        role: 'user',
+        content:
+          'Pull a competitive intelligence report on our tracked brands. I want to know what changed in their funnels and pricing this month.',
+      },
+      {
+        role: 'assistant',
+        content:
+          'On it. Running through your 5 tracked brands now.\n\nHeadway is running a 30% annual plan discount — first promotional pricing in 8 months. Their checkout funnel added a quiz step before plan selection.\n\nBioma Health updated their funnel intro copy and moved the pricing table above the fold. Trial CTA changed from "Start free" to "Try 7 days free — cancel anytime."\n\nDR. SQUATCH added a subscription upsell on step 3 that wasn\'t there last scan. Their pricing page dropped the one-time purchase option.\n\nPattern across all 5 brands: heavier annual plan emphasis, softer trial language, more aggressive upsell positioning at checkout.',
+      },
+      {
+        role: 'user',
+        content: 'Show me the full breakdown.',
+      },
+      {
+        role: 'assistant',
+        content:
+          'Full scan diffs, pricing snapshots, and funnel step history are ready in the intelligence dashboard.',
+      },
+    ],
+  },
   {
     id: 'thread-1',
     title: 'Daily Work Briefing Agent',
@@ -346,11 +373,11 @@ const useCasesByTab: Record<Tab, UseCaseCard[]> = {
   ],
   Insights: [
     {
-      title: 'Competitor monitoring',
+      title: 'Competitor Intel',
       description:
-        'Monitor competitor websites for pricing or feature changes - for major announcements, research and tell me what it means for our positioning.',
-      prompt:
-        'Monitor competitor sites for pricing/feature changes and summarize strategic implications weekly.',
+        'Live competitive intelligence: funnel changes, pricing shifts, and positioning analysis across all tracked brands.',
+      prompt: '__INTEL__',
+      featured: true,
     },
     {
       title: 'Research deep dives',
@@ -441,6 +468,12 @@ export default function App() {
   }, [chatSearch, chatThreads])
 
   function onUseCaseClick(card: UseCaseCard): void {
+    if (card.prompt === '__INTEL__') {
+      setActiveChatId(INTEL_THREAD_ID)
+      setIsHomeView(false)
+      setChatError(null)
+      return
+    }
     setComposerText(card.prompt)
   }
 
@@ -873,12 +906,33 @@ export default function App() {
                     <button type="button">Create virtual computer</button>
                   </div>
                 )}
+              {activeChatId === INTEL_THREAD_ID &&
+                message.role === 'assistant' &&
+                index === chatMessages.length - 1 && (
+                  <div className="virtual-computer-card">
+                    <div className="vc-head">
+                      <h4>Competitor Intelligence Dashboard</h4>
+                      <span>Funnel Intel</span>
+                    </div>
+                    <p>
+                      Browse full scan histories, side-by-side funnel diffs, and pricing snapshots
+                      for every tracked brand.
+                    </p>
+                    <div className="vc-ready">
+                      <strong>Ready to view</strong>
+                      <span>Click below to open the live intelligence dashboard.</span>
+                    </div>
+                    <a href="/intel" target="_blank" rel="noopener noreferrer">
+                      <button type="button">View competitor dashboard →</button>
+                    </a>
+                  </div>
+                )}
             </article>
           ))}
           {chatMessages.length === 0 && <div className="chat-empty">Start the conversation below.</div>}
           {chatError && <div className="chat-error">{chatError}</div>}
           </section>
-          <div className="chat-composer-wrap">
+          {activeChatId !== INTEL_THREAD_ID && <div className="chat-composer-wrap">
             <div className="composer">
               <div className="composer-title">
                 <input
@@ -990,7 +1044,7 @@ export default function App() {
                 Connect to any App, API, or MCP
               </div>
             </div>
-          </div>
+          </div>}
         </section>
       )}
 

@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 const links = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/competitors', icon: Users, label: 'Competitors' },
-  { to: '/pricing', icon: DollarSign, label: 'Pricing' },
-  { to: '/compare', icon: GitCompare, label: 'Compare' },
+  { to: '/intel', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/intel/competitors', icon: Users, label: 'Competitors' },
+  { to: '/intel/pricing', icon: DollarSign, label: 'Pricing' },
+  { to: '/intel/compare', icon: GitCompare, label: 'Compare' },
 ]
 
 export function Sidebar() {
@@ -51,6 +51,7 @@ export function Sidebar() {
             <NavLink
               key={to}
               to={to}
+              end={to === '/intel'}
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
                 cn(
