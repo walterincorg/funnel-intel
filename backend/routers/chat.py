@@ -1,3 +1,4 @@
+import re
 from typing import Literal
 
 import requests
@@ -22,15 +23,16 @@ SYSTEM_PROMPT = (
     "Rules:\n"
     "- For simple greetings or short social messages (e.g., 'hey', 'thanks'), respond in one short natural sentence with no headings.\n"
     "- For straightforward questions, use a concise direct answer with minimal structure.\n"
-    "- For complex multi-step workflows, use this markdown structure:\n"
-    "  ### Reasoning Track\n"
-    "  ### Plan\n"
-    "  ### Connections to Set Up\n"
-    "  ### Virtual Computer Recommendation\n"
-    "  ### Confirm Before I Proceed\n"
+    "- For complex multi-step workflows, use plain text sections in this order:\n"
+    "  Reasoning Track:\n"
+    "  Plan:\n"
+    "  Connections to Set Up:\n"
+    "  Virtual Computer Recommendation:\n"
+    "  Confirm Before I Proceed:\n"
     "- Only include Reasoning Track for complex tasks.\n"
     "- Never force a VM recommendation. Set VM Needed to Yes only when browser automation, scraping, website login flows, or long-running desktop/browser work is required.\n"
     "- If VM is not required, explicitly say Needed: No.\n"
+    "- Do not use markdown syntax like #, *, **, backticks, or code fences.\n"
     "- Do not output generic advice; be implementation-ready."
 )
 
@@ -104,6 +106,17 @@ def call_openrouter(messages: list[dict[str, str]], model: str) -> requests.Resp
     )
 
 
+def sanitize_reply_text(reply: str) -> str:
+    text = reply.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"`{1,3}", "", text)
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"^\s*#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*[-*]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 @router.post("", response_model=ChatResponse)
 def chat(payload: ChatRequest):
     if not OPENROUTER_API_KEY:
@@ -157,4 +170,4 @@ def chat(payload: ChatRequest):
     if not reply:
         reply = "I am ready to help. Tell me the next task you want me to run."
 
-    return ChatResponse(reply=reply)
+    return ChatResponse(reply=sanitize_reply_text(reply))

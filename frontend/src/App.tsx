@@ -1,6 +1,5 @@
 import {
   ArrowUp,
-  ArrowUpRight,
   Cable,
   Check,
   ChevronUp,
@@ -14,7 +13,7 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ChatMessage, type ChatModelPreset } from '@/api/client'
 
 type Tab = 'Comms' | 'Operations' | 'Admin' | 'Growth' | 'Insights'
@@ -410,6 +409,7 @@ export default function App() {
   const [selectedModelPreset, setSelectedModelPreset] = useState<ChatModelPreset>('advanced')
   const requestAbortRef = useRef<AbortController | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const activeCards = useCasesByTab[activeTab]
   const canSend = composerText.trim().length > 0
   const composioApiKey = (import.meta.env.VITE_COMPOSIO_API_KEY as string | undefined)?.trim()
@@ -531,8 +531,12 @@ export default function App() {
     setChatError(null)
   }
 
-  function onSearchAgents(): void {
-    searchInputRef.current?.focus()
+  function onAttachClick(): void {
+    fileInputRef.current?.click()
+  }
+
+  function onAttachSelected(event: ChangeEvent<HTMLInputElement>): void {
+    event.target.value = ''
   }
 
   function openConnectionsModal(): void {
@@ -626,13 +630,18 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      <input
+        ref={fileInputRef}
+        className="hidden-file-input"
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={onAttachSelected}
+      />
       <aside className="chat-sidebar">
         <div className="sidebar-top">
           <button type="button" className="sidebar-new" onClick={onCreateNewAgent}>
             New agent
-          </button>
-          <button type="button" className="sidebar-search" onClick={onSearchAgents}>
-            Search agents
           </button>
           <input
             ref={searchInputRef}
@@ -669,7 +678,7 @@ export default function App() {
         </div>
       </aside>
 
-      <div className="workspace">
+      <div className={`workspace ${isHomeView ? '' : 'chat-mode'}`.trim()}>
         <div className="page">
       {isHomeView ? (
         <>
@@ -679,15 +688,6 @@ export default function App() {
             <img src="/walter-assets/walter-icon.png" alt="Walter icon" />
             <span>Walter</span>
           </div>
-          <nav>
-            <a href="#learn">Learn</a>
-            <a href="#pricing">Pricing</a>
-            <a href="#notes">Release notes</a>
-          </nav>
-          <button type="button" className="share-btn">
-            <ArrowUpRight size={14} />
-            Share
-          </button>
         </header>
 
         <div className="hero-copy">
@@ -719,7 +719,7 @@ export default function App() {
             </button>
           </div>
           <div className="composer-actions">
-            <button type="button" aria-label="attach file">
+            <button type="button" aria-label="attach file" onClick={onAttachClick}>
               <Paperclip size={16} />
             </button>
             <div className="connections-anchor">
@@ -903,7 +903,7 @@ export default function App() {
                 </button>
               </div>
               <div className="composer-actions">
-                <button type="button" aria-label="attach file">
+                <button type="button" aria-label="attach file" onClick={onAttachClick}>
                   <Paperclip size={16} />
                 </button>
                 <div className="connections-anchor">

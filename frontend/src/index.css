@@ -5,10 +5,12 @@ body {
   background: #080a0f;
   color: #f4f5f8;
   font-family: Inter, system-ui, -apple-system, sans-serif;
+  overflow: hidden;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 a {
@@ -20,10 +22,15 @@ button {
   font: inherit;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .chat-sidebar {
@@ -33,6 +40,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar-top {
@@ -73,6 +82,10 @@ button {
 .sidebar-chats {
   display: grid;
   gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  align-content: start;
 }
 
 .sidebar-chats button {
@@ -132,6 +145,9 @@ button {
 .workspace {
   min-width: 0;
   padding: 18px 24px 30px;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .page {
@@ -148,25 +164,7 @@ button {
 }
 
 .topbar {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 24px;
-}
-
-.topbar nav {
   display: flex;
-  justify-content: center;
-  gap: 26px;
-  color: #a6adbd;
-}
-
-.topbar nav a:hover {
-  color: #ffffff;
-}
-
-.brand {
-  display: inline-flex;
   align-items: center;
   gap: 10px;
 }
@@ -182,18 +180,6 @@ button {
   font-size: 27px;
   font-family: Georgia, "Times New Roman", serif;
   color: #f8f9fb;
-}
-
-.share-btn {
-  border: 1px solid #2a3042;
-  background: #121621;
-  color: #d8deed;
-  border-radius: 8px;
-  padding: 8px 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
 }
 
 .hero-copy {
@@ -278,7 +264,8 @@ button {
   padding: 12px 14px;
 }
 
-.composer-actions button {
+.composer-actions > button,
+.composer-actions > .connections-anchor > button {
   background: #141a27;
   color: #d4dbec;
   border: 1px solid #2a3144;
@@ -423,6 +410,8 @@ button {
   align-items: center;
   gap: 12px;
   text-align: left;
+  height: auto;
+  place-items: unset;
 }
 
 .menu-item.account {
@@ -477,6 +466,11 @@ button {
   max-width: 760px;
   display: grid;
   gap: 14px;
+  align-content: start;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
 }
 
 .chat-view {
@@ -926,4 +920,128 @@ button {
     width: min(88vw, 360px);
     right: -54px;
   }
+}
+
+/* Monochrome theme override */
+body,
+.app-shell,
+.workspace,
+.hero-shell,
+.chat-sidebar,
+.connections-modal,
+.connections-menu,
+.connection-card,
+.composer,
+.cards article,
+.cards article.featured,
+.virtual-computer-card {
+  background-color: #000 !important;
+  background-image: none !important;
+}
+
+.hero-shell,
+.chat-sidebar,
+.sidebar-profile,
+.composer,
+.cards article,
+.cards article.featured,
+.connections-modal,
+.connections-menu,
+.connection-card,
+.modal-search,
+.sidebar-new,
+.sidebar-search,
+.sidebar-search-input,
+.send-btn,
+.stop-btn,
+.composer-actions > button,
+.composer-actions > .connections-anchor > button,
+.menu-item.account,
+.composer-footer,
+.tabs,
+.modal-tabs-row,
+.vc-ready,
+.close-modal {
+  border-color: #2f2f2f !important;
+}
+
+.send-btn,
+.virtual-computer-card button {
+  background: #fff !important;
+  color: #000 !important;
+}
+
+.send-btn:disabled,
+.stop-btn:disabled {
+  background: #111 !important;
+  color: #777 !important;
+}
+
+.stop-btn,
+.sidebar-new,
+.sidebar-search,
+.sidebar-search-input,
+.composer-actions > button,
+.composer-actions > .connections-anchor > button {
+  background: #0b0b0b !important;
+  color: #f2f2f2 !important;
+}
+
+.tabs .active {
+  color: #fff !important;
+  border-bottom-color: #fff !important;
+}
+
+.tabs button,
+.sidebar-section,
+.sidebar-profile span,
+.composer-footer,
+.hero-copy span,
+.cards p,
+.connection-card p,
+.menu-item.account span,
+.vc-head span,
+.vc-ready span,
+.modal-head p,
+.modal-search,
+.sidebar-empty {
+  color: #a9a9a9 !important;
+}
+
+.brand span,
+.hero-copy h1,
+.cards h3,
+.chat-message,
+.connection-card h3,
+.menu-item,
+.sidebar-chats button,
+.modal-tabs-row button.active {
+  color: #f5f5f5 !important;
+}
+
+.sidebar-chats button.active {
+  background: #111 !important;
+  border-color: #f2f2f2 !important;
+}
+
+.model-menu,
+.model-menu-item,
+.model-menu-item:hover,
+.modal-loading,
+.modal-error,
+.modal-empty,
+.chat-error {
+  background: #0b0b0b !important;
+  color: #f0f0f0 !important;
+  border-color: #3a3a3a !important;
+}
+
+.model-menu-head span,
+.model-menu-head em,
+.model-menu-item small {
+  color: #b5b5b5 !important;
+}
+
+.model-menu-item svg {
+  color: #fff !important;
 }
