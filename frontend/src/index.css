@@ -707,6 +707,29 @@ button {
   font-size: 14px;
 }
 
+.vc-tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.vc-tool-btn {
+  border: 1px solid #2f3a52;
+  background: #0e1522;
+  color: #e6edf9;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.vc-tool-btn.connected {
+  border-color: #385f49;
+  background: #13271d;
+  color: #b9f1ce;
+}
+
 .virtual-computer-card button {
   margin-left: auto;
   display: block;
@@ -717,6 +740,11 @@ button {
   padding: 10px 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.virtual-computer-card button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .use-cases {

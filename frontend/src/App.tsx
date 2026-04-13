@@ -65,6 +65,37 @@ function integrationClass(integration: string): string {
   return integration.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
+const virtualComputerToolkitHints: Array<{ slug: string; name: string; patterns: string[] }> = [
+  { slug: 'zapier', name: 'Zapier', patterns: ['zapier'] },
+  { slug: 'make', name: 'Make', patterns: ['make.com', ' make '] },
+  { slug: 'slack', name: 'Slack', patterns: ['slack'] },
+  { slug: 'hubspot', name: 'HubSpot', patterns: ['hubspot'] },
+  { slug: 'gmail', name: 'Gmail', patterns: ['gmail'] },
+  { slug: 'notion', name: 'Notion', patterns: ['notion'] },
+  { slug: 'google-calendar', name: 'Google Calendar', patterns: ['google calendar'] },
+  { slug: 'google-drive', name: 'Google Drive', patterns: ['google drive'] },
+  { slug: 'airtable', name: 'Airtable', patterns: ['airtable'] },
+  { slug: 'calendly', name: 'Calendly', patterns: ['calendly'] },
+  { slug: 'github', name: 'GitHub', patterns: ['github'] },
+  { slug: 'linear', name: 'Linear', patterns: ['linear'] },
+  { slug: 'apify', name: 'Apify', patterns: ['apify'] },
+  { slug: 'hunter', name: 'Hunter', patterns: ['hunter'] },
+]
+
+function inferVirtualComputerToolkits(messageContent: string): ConnectionItem[] {
+  const normalized = ` ${messageContent.toLowerCase()} `
+  return virtualComputerToolkitHints
+    .filter((candidate) =>
+      candidate.patterns.some((pattern) => normalized.includes(` ${pattern.trim().toLowerCase()} `)),
+    )
+    .map((candidate) => ({
+      id: candidate.slug,
+      slug: candidate.slug,
+      name: candidate.name,
+      description: `Connect ${candidate.name} with Walter.`,
+    }))
+}
+
 const fallbackConnections: ConnectionItem[] = [
   {
     id: 'gmail',
@@ -431,6 +462,7 @@ export default function App() {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
   const [selectedModelPreset, setSelectedModelPreset] = useState<ChatModelPreset>('advanced')
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
+  const [vcConnectedByCard, setVcConnectedByCard] = useState<Record<string, string[]>>({})
   const requestAbortRef = useRef<AbortController | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -611,7 +643,7 @@ export default function App() {
     setChatError(null)
   }
 
-  async function onConnectToolkit(item: ConnectionItem): Promise<void> {
+  async function onConnectToolkit(item: ConnectionItem): Promise<boolean> {
     setConnectingToolkitSlug(item.slug)
     setConnectionsError(null)
     try {
@@ -622,16 +654,43 @@ export default function App() {
       )
       if (result.redirect_url) {
         window.open(result.redirect_url, '_blank', 'noopener,noreferrer')
+        return true
       } else {
         setConnectionsError(`Connection created for ${item.name}, but no redirect URL was returned.`)
+        return false
       }
     } catch (error) {
       console.error(error)
       const message = error instanceof Error ? error.message : 'Unknown error'
       setConnectionsError(`Could not start connection for ${item.name}. ${message}`)
+      return false
     } finally {
       setConnectingToolkitSlug(null)
     }
+  }
+
+  async function onConnectVirtualToolkit(cardKey: string, item: ConnectionItem): Promise<void> {
+    const connected = await onConnectToolkit(item)
+    if (!connected) {
+      return
+    }
+    setVcConnectedByCard((prev) => {
+      const existing = prev[cardKey] ?? []
+      if (existing.includes(item.slug)) {
+        return prev
+      }
+      return { ...prev, [cardKey]: [...existing, item.slug] }
+    })
+  }
+
+  function onCreateVirtualComputer(cardKey: string, requiredToolkits: ConnectionItem[]): void {
+    const linked = vcConnectedByCard[cardKey] ?? []
+    const hasUnlinked = requiredToolkits.some((toolkit) => !linked.includes(toolkit.slug))
+    if (hasUnlinked) {
+      setChatError('First step: connect the required tools with Composio links below.')
+      return
+    }
+    setChatError('Tool links are connected. Next step is virtual computer provisioning.')
   }
 
   useEffect(() => {
@@ -948,6 +1007,14 @@ export default function App() {
               {message.role === 'assistant' &&
                 message.content.toLowerCase().includes('virtual computer') && (
                   <div className="virtual-computer-card">
+                    {(() => {
+                      const cardKey = `${activeChatId}-${index}`
+                      const requiredToolkits = inferVirtualComputerToolkits(message.content)
+                      const linked = vcConnectedByCard[cardKey] ?? []
+                      const remaining = requiredToolkits.filter((toolkit) => !linked.includes(toolkit.slug))
+                      const allConnected = remaining.length === 0
+                      return (
+                        <>
                     <div className="vc-head">
                       <h4>Create a virtual computer?</h4>
                       <span>LinkedIn Scraping Computer</span>
@@ -957,10 +1024,41 @@ export default function App() {
                       and keep long-running desktop workflows active for you.
                     </p>
                     <div className="vc-ready">
-                      <strong>Ready to create</strong>
-                      <span>Click the button below to provision a new virtual computer.</span>
+                      <strong>Step 1: Connect tools with Composio</strong>
+                      <span>
+                        {requiredToolkits.length > 0
+                          ? 'Connect the suggested tools first using the links below.'
+                          : 'No specific tools were detected in this answer. You can connect apps in Connections.'}
+                      </span>
                     </div>
-                    <button type="button">Create virtual computer</button>
+                    {requiredToolkits.length > 0 && (
+                      <div className="vc-tool-list">
+                        {requiredToolkits.map((toolkit) => {
+                          const connected = linked.includes(toolkit.slug)
+                          return (
+                            <button
+                              key={`${cardKey}-${toolkit.slug}`}
+                              type="button"
+                              className={`vc-tool-btn ${connected ? 'connected' : ''}`}
+                              onClick={() => void onConnectVirtualToolkit(cardKey, toolkit)}
+                              disabled={connected || connectingToolkitSlug === toolkit.slug}
+                            >
+                              {connected ? `Connected: ${toolkit.name}` : `Connect ${toolkit.name}`}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onCreateVirtualComputer(cardKey, requiredToolkits)}
+                      disabled={!allConnected}
+                    >
+                      {allConnected ? 'Create virtual computer' : `Connect tools first (${remaining.length})`}
+                    </button>
+                        </>
+                      )
+                    })()}
                   </div>
                 )}
             </article>
