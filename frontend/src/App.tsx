@@ -807,7 +807,6 @@ export default function App() {
           <div className="avatar">N</div>
           <div>
             <strong>Nikolas Keller</strong>
-            <span>Pro trial</span>
           </div>
         </div>
       </aside>
