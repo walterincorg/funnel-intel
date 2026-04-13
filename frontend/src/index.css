@@ -676,6 +676,14 @@ button {
   padding: 16px;
 }
 
+.tool-connect-card {
+  margin-top: 14px;
+  border: 1px solid #262d40;
+  background: #0f1420;
+  border-radius: 10px;
+  padding: 14px;
+}
+
 .vc-head {
   display: flex;
   align-items: baseline;

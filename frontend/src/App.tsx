@@ -96,6 +96,10 @@ function inferVirtualComputerToolkits(messageContent: string): ConnectionItem[] 
     }))
 }
 
+function isVirtualComputerNeeded(messageContent: string): boolean {
+  return /needed:\s*yes/i.test(messageContent)
+}
+
 const fallbackConnections: ConnectionItem[] = [
   {
     id: 'gmail',
@@ -1011,62 +1015,71 @@ export default function App() {
                 </div>
               )}
               {message.role === 'assistant' &&
-                message.content.toLowerCase().includes('virtual computer') && (
-                  <div className="virtual-computer-card">
-                    {(() => {
-                      const cardKey = `${activeChatId}-${index}`
-                      const requiredToolkits = inferVirtualComputerToolkits(message.content)
-                      const linked = vcConnectedByCard[cardKey] ?? []
-                      const remaining = requiredToolkits.filter((toolkit) => !linked.includes(toolkit.slug))
-                      const allConnected = remaining.length === 0
-                      return (
-                        <>
-                    <div className="vc-head">
-                      <h4>Create a virtual computer?</h4>
-                      <span>LinkedIn Scraping Computer</span>
-                    </div>
-                    <p>
-                      A dedicated virtual computer lets the agent log into websites, run native apps,
-                      and keep long-running desktop workflows active for you.
-                    </p>
-                    <div className="vc-ready">
-                      <strong>Step 1: Connect tools with Composio</strong>
-                      <span>
-                        {requiredToolkits.length > 0
-                          ? 'Connect the suggested tools first using the links below.'
-                          : 'No specific tools were detected in this answer. You can connect apps in Connections.'}
-                      </span>
-                    </div>
-                    {requiredToolkits.length > 0 && (
-                      <div className="vc-tool-list">
-                        {requiredToolkits.map((toolkit) => {
-                          const connected = linked.includes(toolkit.slug)
-                          return (
-                            <button
-                              key={`${cardKey}-${toolkit.slug}`}
-                              type="button"
-                              className={`vc-tool-btn ${connected ? 'connected' : ''}`}
-                              onClick={() => void onConnectVirtualToolkit(cardKey, toolkit)}
-                              disabled={connected || connectingToolkitSlug === toolkit.slug}
-                            >
-                              {connected ? `Connected: ${toolkit.name}` : `Connect ${toolkit.name}`}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onCreateVirtualComputer(cardKey, requiredToolkits)}
-                      disabled={!allConnected}
-                    >
-                      {allConnected ? 'Create virtual computer' : `Connect tools first (${remaining.length})`}
-                    </button>
-                        </>
-                      )
-                    })()}
-                  </div>
-                )}
+                (() => {
+                  const cardKey = `${activeChatId}-${index}`
+                  const requiredToolkits = inferVirtualComputerToolkits(message.content)
+                  const linked = vcConnectedByCard[cardKey] ?? []
+                  const remaining = requiredToolkits.filter((toolkit) => !linked.includes(toolkit.slug))
+                  const allConnected = remaining.length === 0
+                  const vmNeeded = isVirtualComputerNeeded(message.content)
+
+                  return (
+                    <>
+                      {requiredToolkits.length > 0 && (
+                        <div className="tool-connect-card">
+                          <div className="vc-ready">
+                            <strong>Connect recommended tools</strong>
+                            <span>Use Composio links first, then continue the workflow.</span>
+                          </div>
+                          <div className="vc-tool-list">
+                            {requiredToolkits.map((toolkit) => {
+                              const connected = linked.includes(toolkit.slug)
+                              return (
+                                <button
+                                  key={`${cardKey}-${toolkit.slug}`}
+                                  type="button"
+                                  className={`vc-tool-btn ${connected ? 'connected' : ''}`}
+                                  onClick={() => void onConnectVirtualToolkit(cardKey, toolkit)}
+                                  disabled={connected || connectingToolkitSlug === toolkit.slug}
+                                >
+                                  {connected ? `Connected: ${toolkit.name}` : `Connect ${toolkit.name}`}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {vmNeeded && (
+                        <div className="virtual-computer-card">
+                          <div className="vc-head">
+                            <h4>Create a virtual computer?</h4>
+                            <span>LinkedIn Scraping Computer</span>
+                          </div>
+                          <p>
+                            A dedicated virtual computer lets the agent log into websites, run native apps,
+                            and keep long-running desktop workflows active for you.
+                          </p>
+                          <div className="vc-ready">
+                            <strong>Step 2: Start virtual computer</strong>
+                            <span>
+                              {requiredToolkits.length > 0
+                                ? 'After tools are connected, start the VM for browser automation tasks.'
+                                : 'No specific tools were detected in this answer.'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onCreateVirtualComputer(cardKey, requiredToolkits)}
+                            disabled={!allConnected}
+                          >
+                            {allConnected ? 'Create virtual computer' : `Connect tools first (${remaining.length})`}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
             </article>
           ))}
           {chatMessages.length === 0 && <div className="chat-empty">Start the conversation below.</div>}

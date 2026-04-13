@@ -32,6 +32,8 @@ SYSTEM_PROMPT = (
     "- Only include Reasoning Track for complex tasks.\n"
     "- Never force a VM recommendation. Set VM Needed to Yes only when browser automation, scraping, website login flows, or long-running desktop/browser work is required.\n"
     "- If VM is not required, explicitly say Needed: No.\n"
+    "- For email briefing, inbox summary, or send-email workflows, default to VM Needed: No and prioritize connecting Gmail via Composio.\n"
+    "- If VM Needed is No, do not suggest creating a virtual computer.\n"
     "- Do not use markdown syntax like #, *, **, backticks, or code fences.\n"
     "- Do not output generic advice; be implementation-ready."
 )
@@ -68,6 +70,20 @@ def get_use_case_hint(user_message: str) -> str | None:
             "Virtual computer recommendation:\n"
             "- Needed: Yes\n"
             "- Why: browser logins, anti-bot friction, long-running scraping and enrichment workflows."
+        )
+
+    if (
+        "email briefing" in message
+        or "inbox briefing" in message
+        or ("briefing" in message and "email" in message)
+        or "summarize my emails" in message
+    ):
+        return (
+            "For email briefing workflows, recommend these exact connections unless the user requests alternatives:\n"
+            "- Gmail API (read inbox, thread context, and send summary email)\n"
+            "Virtual computer recommendation:\n"
+            "- Needed: No\n"
+            "- Why: this can run through direct API access without browser automation."
         )
 
     return None
