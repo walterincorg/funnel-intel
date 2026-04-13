@@ -22,7 +22,7 @@ def initiate_connection(req: ConnectRequest):
     try:
         url = composio_service.get_connection_url(req.tool)
         return {"redirect_url": url, "tool": req.tool}
-    except Exception as e:
+    except Exception:
         log.exception("Failed to initiate Composio connection for tool: %s", req.tool)
         raise HTTPException(status_code=500, detail="Failed to initiate Composio connection")
 
