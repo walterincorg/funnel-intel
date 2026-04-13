@@ -702,7 +702,7 @@ export default function App() {
             aria-label="Go to home"
             title="Go to home"
           >
-            <img src="/walter-assets/walter-icon.png" alt="Walter icon" />
+            <img src="/walter-assets/walter-favicon.png" alt="Walter icon" />
           </button>
           <button
             type="button"
