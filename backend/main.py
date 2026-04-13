@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import GIT_COMMIT
-from backend.routers import competitors, scans, pricing, compare
+from backend.routers import competitors, scans, pricing, compare, composio
 
 STARTUP_TIME = datetime.now(timezone.utc).isoformat()
 
@@ -23,6 +23,7 @@ app.include_router(competitors.router)
 app.include_router(scans.router)
 app.include_router(pricing.router)
 app.include_router(compare.router)
+app.include_router(composio.router)
 
 
 @app.get("/api/health")

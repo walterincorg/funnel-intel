@@ -9,6 +9,10 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "funnel-screenshots")
 
+# Composio
+COMPOSIO_API_KEY = os.getenv("COMPOSIO_API_KEY", "")
+COMPOSIO_SLACK_CHANNEL = os.getenv("COMPOSIO_SLACK_CHANNEL", "#general")
+
 # OpenClaw
 OPENCLAW_PORT = os.getenv("OPENCLAW_PORT", "18789")
 OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN", "")
