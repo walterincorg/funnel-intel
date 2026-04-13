@@ -824,7 +824,6 @@ export default function App() {
       <section className="hero-shell">
         <div className="hero-copy">
           <h1>What can I do for you?</h1>
-          <span>You are trialing the Pro plan (3 days left) · Upgrade</span>
         </div>
 
         <div className="composer">
