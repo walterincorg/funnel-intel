@@ -8,3 +8,6 @@ uvicorn[standard]
 supabase
 pydantic
 requests
+composio-core>=0.7,<1.0
+pytest
+pytest-mock
