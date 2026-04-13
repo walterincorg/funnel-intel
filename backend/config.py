@@ -20,6 +20,14 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_THREAD_ID = os.getenv("TELEGRAM_THREAD_ID", "")
 
+# OpenRouter chat
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_MODEL_BASIC = os.getenv("OPENROUTER_MODEL_BASIC", "anthropic/claude-3.5-haiku")
+OPENROUTER_MODEL_ADVANCED = os.getenv("OPENROUTER_MODEL_ADVANCED", "anthropic/claude-3.7-sonnet")
+OPENROUTER_MODEL_EXPERT = os.getenv("OPENROUTER_MODEL_EXPERT", "anthropic/claude-opus-4")
+OPENROUTER_MODEL_GENIUS = os.getenv("OPENROUTER_MODEL_GENIUS", "anthropic/claude-opus-4")
+
 # Version
 try:
     GIT_COMMIT = subprocess.check_output(

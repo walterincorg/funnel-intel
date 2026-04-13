@@ -107,6 +107,17 @@ export interface Version {
   deployed_at: string
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatResponse {
+  reply: string
+}
+
+export type ChatModelPreset = 'basic' | 'advanced' | 'expert' | 'genius'
+
 // --- API Functions ---
 
 export const api = {
@@ -142,4 +153,17 @@ export const api = {
 
   // System
   version: () => request<Version>('/version'),
+
+  // Chat
+  chat: (
+    message: string,
+    history: ChatMessage[] = [],
+    modelPreset: ChatModelPreset = 'advanced',
+    signal?: AbortSignal,
+  ) =>
+    request<ChatResponse>('/chat', {
+      method: 'POST',
+      signal,
+      body: JSON.stringify({ message, history, model_preset: modelPreset }),
+    }),
 }
