@@ -134,6 +134,22 @@ Currently using basic `logging.getLogger()` with no structured output, no log ag
 
 **Why it matters:** The ad scraping pipeline runs unattended on a schedule. When a competitor fails silently (like the TodayIsTheDay timeout), we don't know until someone manually checks. Structured logs with alerting on ERROR-level events would catch these immediately.
 
+## Browser Use Cloud
+
+Migrate from local browser-use to Browser Use Cloud. Currently the browser-use agent runs locally on the VPS, which ties up the single worker thread during scans and limits concurrency. Browser Use Cloud would offload browser automation to their managed infrastructure, freeing up the worker for other tasks.
+
+**Benefits:**
+- No local browser/Chromium dependency on the VPS
+- Better concurrency — multiple scans can run in parallel
+- More reliable — managed infrastructure handles crashes, timeouts, resource limits
+- Scales without VPS resource constraints
+
+**What to investigate:**
+- Browser Use Cloud API and pricing
+- How to swap the local `browser_use.Agent` calls in `traversal.py` for cloud API calls
+- Whether the cloud version supports the same LLM-driven agent interface
+- Impact on fingerprint extraction in `domain_intel.py` (currently uses HTTP, but browser fallback would use cloud)
+
 ## Test Coverage for Ad Pipeline
 
 Zero test files exist in this project. The ad pipeline was rewritten (batch upserts, disappearance-based failed_test, LLM analysis) without tests. Priority test files:
