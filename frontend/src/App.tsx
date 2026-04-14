@@ -8,6 +8,7 @@ import { ScanDetail } from '@/pages/ScanDetail'
 import { Pricing } from '@/pages/Pricing'
 import { Compare } from '@/pages/Compare'
 import { AdIntel } from '@/pages/AdIntel'
+import { DomainIntel } from '@/pages/DomainIntel'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/compare" element={<Compare />} />
             <Route path="/ad-intel" element={<AdIntel />} />
+            <Route path="/domain-intel" element={<DomainIntel />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -156,6 +156,66 @@ class CompetitorAnalysisOut(BaseModel):
     created_at: datetime | None = None
 
 
+# --- Domain Intelligence ---
+
+class DomainFingerprintOut(BaseModel):
+    id: str
+    competitor_id: str
+    domain: str
+    fingerprint_type: str
+    fingerprint_value: str
+    detected_at_url: str | None = None
+    raw_snippet: str | None = None
+    metadata: dict | None = None
+    captured_at: datetime | None = None
+
+
+class OperatorClusterOut(BaseModel):
+    id: str
+    cluster_name: str | None = None
+    fingerprint_type: str
+    fingerprint_value: str
+    confidence: str
+    detected_at: datetime | None = None
+    members: list[dict] = []
+
+
+class DiscoveredDomainOut(BaseModel):
+    id: str
+    domain: str
+    discovery_source: str
+    discovery_reason: str | None = None
+    linked_fingerprint_value: str | None = None
+    whois_data: dict | None = None
+    first_seen_at: datetime | None = None
+    last_checked_at: datetime | None = None
+    status: str = "new"
+    relevance: str = "medium"
+
+
+class DomainChangeOut(BaseModel):
+    id: str
+    competitor_id: str
+    fingerprint_type: str
+    change_type: str
+    old_value: str | None = None
+    new_value: str | None = None
+    detected_at: datetime | None = None
+
+
+class DomainIntelRunOut(BaseModel):
+    id: str
+    status: str
+    competitors_scanned: int = 0
+    fingerprints_found: int = 0
+    clusters_found: int = 0
+    domains_discovered: int = 0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+    created_at: datetime | None = None
+
+
 # --- Version ---
 
 class VersionOut(BaseModel):

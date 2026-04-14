@@ -10,6 +10,7 @@ from backend.worker.traversal import run_traversal_sync
 from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
 from backend.worker.ad_loop import maybe_run_ad_scrape
+from backend.worker.domain_intel_loop import maybe_run_domain_intel
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -234,6 +235,12 @@ def process_job(job: dict):
         send_alert(f"❌ {comp['name']}: scan failed — {e}")
 
 
+def has_pending_scan_job() -> bool:
+    """Quick check — used to interrupt ad scrape if a scan job is waiting."""
+    res = get_db().table("scan_jobs").select("id").eq("status", "pending").limit(1).execute()
+    return bool(res.data)
+
+
 def main():
     log.info("Worker started, polling every %ds", POLL_INTERVAL)
     cleanup_stale_jobs()
@@ -242,11 +249,16 @@ def main():
         if job:
             process_job(job)
         else:
-            # Check if daily ad scrape is due
-            try:
-                maybe_run_ad_scrape()
-            except Exception:
-                log.exception("Ad scrape check failed")
+            # Only run background tasks if there are no scan jobs waiting
+            if not has_pending_scan_job():
+                try:
+                    maybe_run_ad_scrape()
+                except Exception:
+                    log.exception("Ad scrape check failed")
+                try:
+                    maybe_run_domain_intel()
+                except Exception:
+                    log.exception("Domain intel check failed")
             time.sleep(POLL_INTERVAL)
     log.info("Worker stopped")
 
