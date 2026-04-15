@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 import logging
+import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from backend.db import get_db
 from backend.worker.traversal import run_traversal_sync
@@ -18,27 +19,43 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 POLL_INTERVAL = 10  # seconds
 _shutdown = False
 
+# Worker identity for multi-instance deployments. Instance "1" is the primary —
+# it runs cleanup on startup and the ad/domain background loops. Other instances
+# only process scan jobs.
+WORKER_ID = os.getenv("WORKER_ID", "1")
+IS_PRIMARY = WORKER_ID == "1"
+
+# A row is considered stale only if it's older than this. Prevents a primary
+# restart from killing scans still running on sibling workers.
+STALE_AGE = timedelta(minutes=45)
+
 
 def cleanup_stale_jobs():
-    """On startup, mark any picked/running rows as failed (left by a dead worker)."""
+    """Mark picked/running rows older than STALE_AGE as failed.
+
+    Only the primary worker (WORKER_ID=1) runs this, and the age threshold
+    means scans still executing on sibling workers are never touched.
+    """
     db = get_db()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    cutoff = (now - STALE_AGE).isoformat()
+    now_iso = now.isoformat()
 
     stale_runs = db.table("scan_runs").update({
         "status": "failed",
-        "completed_at": now,
+        "completed_at": now_iso,
         "summary": {"error": "Worker restarted — scan was interrupted"},
-    }).eq("status", "running").execute()
+    }).eq("status", "running").lt("started_at", cutoff).execute()
 
     stale_jobs = db.table("scan_jobs").update({
         "status": "failed",
-    }).eq("status", "picked").execute()
+    }).eq("status", "picked").lt("picked_at", cutoff).execute()
 
     stale_scrapes = db.table("ad_scrape_runs").update({
         "status": "failed",
-        "completed_at": now,
+        "completed_at": now_iso,
         "error": "Worker restarted — scrape was interrupted",
-    }).in_("status", ["running", "pending"]).execute()
+    }).in_("status", ["running", "pending"]).lt("started_at", cutoff).execute()
 
     n_runs = len(stale_runs.data) if stale_runs.data else 0
     n_jobs = len(stale_jobs.data) if stale_jobs.data else 0
@@ -245,15 +262,17 @@ def has_pending_scan_job() -> bool:
 
 
 def main():
-    log.info("Worker started, polling every %ds", POLL_INTERVAL)
-    cleanup_stale_jobs()
+    log.info("Worker %s started, polling every %ds (primary=%s)", WORKER_ID, POLL_INTERVAL, IS_PRIMARY)
+    if IS_PRIMARY:
+        cleanup_stale_jobs()
     while not _shutdown:
         job = pick_job()
         if job:
             process_job(job)
         else:
-            # Only run background tasks if there are no scan jobs waiting
-            if not has_pending_scan_job():
+            # Background ad/domain loops only run on the primary worker to
+            # avoid triple-firing when multiple workers are deployed.
+            if IS_PRIMARY and not has_pending_scan_job():
                 try:
                     maybe_run_ad_scrape()
                 except Exception:

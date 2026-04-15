@@ -1,0 +1,11 @@
+[Unit]
+Description=Funnel Intel — periodic scan scheduling check
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=funnel-scan-scheduler.service
+
+[Install]
+WantedBy=timers.target

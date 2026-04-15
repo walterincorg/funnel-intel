@@ -1,0 +1,10 @@
+[Unit]
+Description=Funnel Intel — enqueue scheduled scans
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/funnel-intel
+EnvironmentFile=/opt/funnel-intel/.env
+ExecStart=/opt/funnel-intel/.venv/bin/python -m backend.scripts.enqueue_scheduled_scans
