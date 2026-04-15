@@ -14,6 +14,7 @@ from backend.worker.ad_scraper import scrape_competitor_ads, normalize_ad
 from backend.worker.ad_analysis import run_competitor_analysis
 from backend.worker.ad_signals import compute_signals
 from backend.worker.alerts import send_alert
+from backend.worker import freshness
 
 log = logging.getLogger(__name__)
 
@@ -146,6 +147,8 @@ def _run_ad_scrape(today: date):
                 total_ads += ads_count
                 total_signals += signals_count
                 competitors_scraped += 1
+                # Data-level success — analysis is tracked separately below
+                freshness.mark_success(freshness.SOURCE_AD_SCRAPE, comp["id"])
 
                 # Run LLM analysis (isolated from scrape success)
                 try:
@@ -156,8 +159,9 @@ def _run_ad_scrape(today: date):
                 except Exception:
                     log.exception("Analysis failed for %s", comp["name"])
                     analyses_failed += 1
-            except Exception:
+            except Exception as e:
                 log.exception("Failed to scrape ads for %s", comp["name"])
+                freshness.mark_failure(freshness.SOURCE_AD_SCRAPE, comp["id"], str(e))
                 send_alert(f"Ad scrape failed for {comp['name']}")
 
         db.table("ad_scrape_runs").update({
@@ -193,16 +197,16 @@ def _scrape_one_competitor(
     db = get_db()
     log.info("Scraping ads for %s", name)
 
-    # 1. Fetch from Apify
+    # 1. Fetch from Apify and normalize once per raw ad (was normalizing twice)
     raw_ads = scrape_competitor_ads(ads_library_url)
-    normalized = [normalize_ad(raw) for raw in raw_ads]
-    normalized = [a for a in normalized if a["meta_ad_id"]]  # filter blanks
-
-    # Build meta_ad_id -> raw_data lookup (fixes O(n²) .index() bug)
-    meta_to_raw = {}
-    for raw, norm in zip(raw_ads, [normalize_ad(r) for r in raw_ads]):
-        if norm["meta_ad_id"]:
-            meta_to_raw[norm["meta_ad_id"]] = raw
+    normalized: list[dict] = []
+    meta_to_raw: dict[str, dict] = {}
+    for raw in raw_ads:
+        norm = normalize_ad(raw)
+        if not norm["meta_ad_id"]:
+            continue
+        normalized.append(norm)
+        meta_to_raw[norm["meta_ad_id"]] = raw
 
     # 2. Batch upsert ads
     ad_id_map = _batch_upsert_ads(db, competitor_id, normalized)
@@ -213,9 +217,9 @@ def _scrape_one_competitor(
     # 4. Compute signals (pass ad_id_map so new_ad signals get correct ad_id)
     signals = compute_signals(competitor_id, normalized, today, ad_id_map=ad_id_map)
 
-    # 5. Insert signals
-    for sig in signals:
-        db.table("ad_signals").insert(sig).execute()
+    # 5. Batch insert signals (was inserting one at a time)
+    if signals:
+        db.table("ad_signals").insert(signals).execute()
 
     # 6. Alert on high-severity signals
     high_signals = [s for s in signals if s["severity"] in ("high", "critical")]

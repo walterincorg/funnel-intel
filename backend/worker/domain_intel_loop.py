@@ -16,6 +16,7 @@ from backend.worker.domain_reverse_lookup import run_reverse_lookups
 from backend.worker.domain_monitor import poll_new_domains
 from backend.worker.domain_changes import detect_changes, cleanup_old_changes
 from backend.worker.alerts import send_alert
+from backend.worker import freshness
 
 log = logging.getLogger(__name__)
 
@@ -129,8 +130,10 @@ def _run_domain_intel(today: date):
                 # Detect changes for this competitor
                 detect_changes(comp["id"], comp["name"])
 
-            except Exception:
+                freshness.mark_success(freshness.SOURCE_DOMAIN_INTEL, comp["id"])
+            except Exception as e:
                 log.exception("Failed to extract fingerprints for %s", comp["name"])
+                freshness.mark_failure(freshness.SOURCE_DOMAIN_INTEL, comp["id"], str(e))
 
         # Phase 2: Compute operator clusters
         clusters_found = 0

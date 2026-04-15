@@ -20,6 +20,12 @@ APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 APIFY_ADS_ACTOR_ID = os.getenv("APIFY_ADS_ACTOR_ID", "curious_coder/facebook-ads-library-scraper")
 AD_SCRAPE_HOUR_UTC = int(os.getenv("AD_SCRAPE_HOUR_UTC", "6"))
 AD_SCRAPE_DAYS_OF_WEEK = {int(d) for d in os.getenv("AD_SCRAPE_DAYS_OF_WEEK", "0,3").split(",")}
+# Cost controls — directly drive Apify pay-per-event spend
+AD_SCRAPE_LIMIT_PER_SOURCE = int(os.getenv("AD_SCRAPE_LIMIT_PER_SOURCE", "200"))
+AD_SCRAPE_COUNTRY_CODE = os.getenv("AD_SCRAPE_COUNTRY_CODE", "US")
+
+# Freshness thresholds — how stale is too stale for synthesis
+FRESHNESS_STALE_HOURS = int(os.getenv("FRESHNESS_STALE_HOURS", "48"))
 
 # Domain Intelligence APIs
 SPYONWEB_API_TOKEN = os.getenv("SPYONWEB_API_TOKEN", "")

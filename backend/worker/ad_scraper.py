@@ -6,7 +6,12 @@ import time
 from datetime import datetime, timezone
 import requests
 
-from backend.config import APIFY_API_TOKEN, APIFY_ADS_ACTOR_ID
+from backend.config import (
+    APIFY_API_TOKEN,
+    APIFY_ADS_ACTOR_ID,
+    AD_SCRAPE_LIMIT_PER_SOURCE,
+    AD_SCRAPE_COUNTRY_CODE,
+)
 
 log = logging.getLogger(__name__)
 
@@ -16,23 +21,40 @@ MAX_POLL_ATTEMPTS = 60  # 60 × 10s = 10 minutes max wait
 REQUEST_TIMEOUT = 30  # seconds for individual HTTP requests
 
 
-def scrape_competitor_ads(ads_library_url: str) -> list[dict]:
+def scrape_competitor_ads(
+    ads_library_url: str,
+    limit_per_source: int | None = None,
+    country_code: str | None = None,
+) -> list[dict]:
     """Run the Apify Facebook Ads Library scraper and return ad items.
 
     Uses the async pattern: start run, poll until complete, fetch dataset.
+
+    Args:
+        ads_library_url: Meta Ads Library URL (page or keyword search).
+        limit_per_source: Max ads per source URL. Defaults to AD_SCRAPE_LIMIT_PER_SOURCE.
+                          This directly drives Apify cost (pay-per-event).
+        country_code: Country filter for scrapePageAds. Defaults to AD_SCRAPE_COUNTRY_CODE.
+                      Narrows scrape to one country to cap cost.
     """
     if not APIFY_API_TOKEN:
         raise RuntimeError("APIFY_API_TOKEN not configured")
+
+    limit = limit_per_source if limit_per_source is not None else AD_SCRAPE_LIMIT_PER_SOURCE
+    country = country_code if country_code is not None else AD_SCRAPE_COUNTRY_CODE
 
     actor_id = APIFY_ADS_ACTOR_ID.replace("/", "~")
     headers = {
         "Authorization": f"Bearer {APIFY_API_TOKEN}",
         "Content-Type": "application/json",
     }
+    # Note: "scrapePageAds.countryCode" uses dot notation. The curious_coder actor
+    # accepts this flat-dotted form for nested scrapePageAds options. If a future
+    # actor version rejects it, switch to nested {"scrapePageAds": {"countryCode": country}}.
     payload = {
         "urls": [{"url": ads_library_url}],
-        "limitPerSource": 200,
-        "scrapePageAds.countryCode": "US",
+        "limitPerSource": limit,
+        "scrapePageAds.countryCode": country,
     }
 
     # Step 1: Start the actor run

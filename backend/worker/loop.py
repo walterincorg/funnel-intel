@@ -11,6 +11,7 @@ from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
 from backend.worker.ad_loop import maybe_run_ad_scrape
 from backend.worker.domain_intel_loop import maybe_run_domain_intel
+from backend.worker import freshness
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -222,6 +223,7 @@ def process_job(job: dict):
 
         db.table("scan_runs").update(update_data).eq("id", run_id).execute()
         db.table("scan_jobs").update({"status": "done"}).eq("id", job["id"]).execute()
+        freshness.mark_success(freshness.SOURCE_FUNNEL_SCAN, competitor_id)
         log.info("Scan %s completed: %d steps", run_id, len(result["steps"]))
 
     except Exception as e:
@@ -232,6 +234,7 @@ def process_job(job: dict):
             "summary": {"error": str(e)},
         }).eq("id", run_id).execute()
         db.table("scan_jobs").update({"status": "failed"}).eq("id", job["id"]).execute()
+        freshness.mark_failure(freshness.SOURCE_FUNNEL_SCAN, competitor_id, str(e))
         send_alert(f"❌ {comp['name']}: scan failed — {e}")
 
 
