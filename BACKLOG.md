@@ -134,6 +134,19 @@ Currently using basic `logging.getLogger()` with no structured output, no log ag
 
 **Why it matters:** The ad scraping pipeline runs unattended on a schedule. When a competitor fails silently (like the TodayIsTheDay timeout), we don't know until someone manually checks. Structured logs with alerting on ERROR-level events would catch these immediately.
 
+## Domain Intel: Per-Competitor Brand Keyword Override
+
+WhoisXML Brand Monitor uses substring matching against the domain label. Today we derive the search keyword automatically from the competitor name (first alphanumeric token ≥4 chars). This works for simple brands (`Liven app` → `liven`) but misfires when the brand isn't the first word (`Meal Plan by Better Me` → `meal`, should be `better`) or when the derived token is too generic and the boundary filter still lets noise through.
+
+**Proposed:**
+- Add a `brand_keyword` nullable column to `competitors` (default null → fall back to auto-derived token).
+- Surface the field in the competitor edit UI so the user can override per row.
+- `domain_monitor.poll_new_domains()` reads `brand_keyword` first, falls back to the auto-token logic.
+
+**Why later, not now:** The auto-token + boundary-match filter is good enough to make the feature usable. Override is the "correct" fix but needs a schema migration, backend plumbing, and a UI field — not worth it until we see whether the heuristic alone produces too many false positives in real use.
+
+**Discovered in:** Investigating why `domains_discovered: 0` on every domain intel run — root cause was a malformed WhoisXML payload, but fixing the API call revealed the substring-match noise problem.
+
 ## Browser Use Cloud
 
 Migrate from local browser-use to Browser Use Cloud. Currently the browser-use agent runs locally on the VPS, which ties up the single worker thread during scans and limits concurrency. Browser Use Cloud would offload browser automation to their managed infrastructure, freeing up the worker for other tasks.
