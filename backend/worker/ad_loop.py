@@ -133,6 +133,12 @@ def _run_ad_scrape(today: date):
             return
 
         for comp in comps:
+            # Yield to scan jobs — they take priority over ad scraping
+            if db.table("scan_jobs").select("id").eq("status", "pending").limit(1).execute().data:
+                log.info("Pending scan job detected — pausing ad scrape to run scan first")
+                db.table("ad_scrape_runs").update({"status": "pending"}).eq("id", run_id).execute()
+                return
+
             try:
                 ads_count, signals_count = _scrape_one_competitor(
                     comp["id"], comp["name"], comp["ads_library_url"], today

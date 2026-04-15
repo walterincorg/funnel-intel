@@ -24,6 +24,14 @@ export function DomainIntel() {
     queryFn: api.domainStats,
   })
 
+  const { data: runs } = useQuery({
+    queryKey: ['domain-runs'],
+    queryFn: api.domainRuns,
+    refetchInterval: 3000,
+  })
+
+  const isScanning = runs?.[0]?.status === 'running' || runs?.[0]?.status === 'pending'
+
   const scanMutation = useMutation({
     mutationFn: api.triggerDomainScan,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['domain'] }),
@@ -42,10 +50,10 @@ export function DomainIntel() {
         <h1 className="text-2xl font-semibold text-text-bright">Domain Intelligence</h1>
         <button
           onClick={() => scanMutation.mutate()}
-          disabled={scanMutation.isPending}
+          disabled={scanMutation.isPending || isScanning}
           className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50"
         >
-          {scanMutation.isPending ? 'Scanning...' : 'Re-scan All'}
+          {isScanning ? 'Scanning...' : 'Re-scan All'}
         </button>
       </div>
       <p className="text-sm text-text/60 mb-6">Infrastructure fingerprints and new domain discovery</p>

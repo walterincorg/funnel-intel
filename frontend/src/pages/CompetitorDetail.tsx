@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Play, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react'
 import { api } from '@/api/client'
 import { cn, formatDate } from '@/lib/utils'
@@ -7,6 +7,7 @@ import { cn, formatDate } from '@/lib/utils'
 export function CompetitorDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data: competitor, isLoading: loadingComp } = useQuery({
     queryKey: ['competitor', id],
@@ -18,11 +19,21 @@ export function CompetitorDetail() {
     queryKey: ['scans', id],
     queryFn: () => api.listScans(id!),
     enabled: !!id,
+    refetchInterval: 5000,
   })
 
+  const { data: activeJobs } = useQuery({
+    queryKey: ['active-jobs'],
+    queryFn: api.listActiveJobs,
+    refetchInterval: 3000,
+  })
+
+  const isScanning = (activeJobs ?? []).some(j => j.competitor_id === id)
+
   const handleScan = async () => {
-    if (!id) return
+    if (!id || isScanning) return
     await api.triggerScan(id)
+    queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
   }
 
   if (loadingComp || loadingScans) {
@@ -67,9 +78,11 @@ export function CompetitorDetail() {
           </div>
           <button
             onClick={handleScan}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/80 transition-colors"
+            disabled={isScanning}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/80 disabled:opacity-50 transition-colors"
           >
-            <Play size={16} /> Scan Now
+            {isScanning ? <Clock size={16} className="animate-pulse" /> : <Play size={16} />}
+            {isScanning ? 'Scanning...' : 'Scan Now'}
           </button>
         </div>
       </div>

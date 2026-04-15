@@ -223,6 +223,19 @@ export interface DomainChange {
   detected_at: string
 }
 
+export interface DomainIntelRun {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  competitors_scanned: number | null
+  fingerprints_found: number | null
+  clusters_found: number | null
+  domains_discovered: number | null
+  started_at: string | null
+  completed_at: string | null
+  error: string | null
+  created_at: string
+}
+
 export interface DomainStats {
   competitors_tracked: number
   clusters_found: number
@@ -319,6 +332,7 @@ export const api = {
     if (params?.days) qs.set('days', String(params.days))
     return request<DomainChange[]>(`/domains/changes?${qs}`)
   },
+  domainRuns: () => request<DomainIntelRun[]>('/domains/runs'),
   triggerDomainScan: () =>
     request<{ run_id: string; status: string }>('/domains/scan', { method: 'POST' }),
 

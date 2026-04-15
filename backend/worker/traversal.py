@@ -44,6 +44,32 @@ def _extract_all_content(result) -> str:
     return "\n".join(lines)
 
 
+def _parse_funnel_step_from_memory(memory: str, step_num: int) -> dict | None:
+    """
+    Try to extract step details from the agent's memory text for a given step number.
+
+    The agent writes memory like:
+      "Step 36: 'Got it! And what's your goal weight?' - entered 130 lbs."
+    """
+    # Match: Step N: 'Question' - action
+    pattern = (
+        r'[Ss]tep\s+' + str(step_num) + r':\s+["\u201c\u2018]([^"\u201d\u2019]+)["\u201d\u2019]'
+        r'(?:\s*[-–]\s*(.{0,120}))?'
+    )
+    m = re.search(pattern, memory)
+    if m:
+        question = m.group(1).strip()
+        action_hint = (m.group(2) or "").strip().rstrip('.,')
+        return {
+            "step_number": step_num,
+            "step_type": "question",
+            "question_text": question,
+            "action_taken": action_hint or "completed",
+            "log": f"Step {step_num}: {question}" + (f" → {action_hint}" if action_hint else ""),
+        }
+    return None
+
+
 async def run_traversal(
     competitor_name: str,
     funnel_url: str,
@@ -79,22 +105,86 @@ async def run_traversal(
         ),
     )
 
+    # Per-step capture via callback — so we don't depend on the agent
+    # calling extract_content for each step. The agent tracks progress in
+    # its memory field; we read it after every LLM step.
+    callback_steps: list[dict] = []
+    _last_funnel_step: list[int] = [0]   # mutable for closure
+    _last_memory: list[str] = [""]
+    _last_url: list[str] = [funnel_url]
+
+    def _step_callback(browser_state, agent_output, n_steps: int):
+        memory = (agent_output.memory or "") if agent_output else ""
+        url = browser_state.url if browser_state else _last_url[0]
+
+        # 1. Try to parse structured JSON from memory first
+        json_objs = _parse_json_lines(memory)
+        new_json = [
+            s for s in json_objs
+            if "step_number" in s
+            and not s.get("summary")
+            and s["step_number"] > _last_funnel_step[0]
+        ]
+        if new_json:
+            for s in sorted(new_json, key=lambda x: x["step_number"]):
+                step_with_url = {**s, "url": s.get("url") or url}
+                callback_steps.append(step_with_url)
+                if on_progress:
+                    msg = s.get("log") or s.get("question_text") or f"Step {s['step_number']}"
+                    on_progress({"step": s["step_number"], "type": s.get("step_type", "unknown"), "message": msg})
+                _last_funnel_step[0] = s["step_number"]
+            _last_memory[0] = memory
+            _last_url[0] = url
+            return
+
+        # 2. Text fallback: detect "Steps 1-N completed" transitions
+        m = re.search(r'[Ss]teps?\s+1[-\u2013\u2014]\s*(\d+)\s+completed', memory)
+        if m:
+            completed_up_to = int(m.group(1))
+            while _last_funnel_step[0] < completed_up_to:
+                next_step = _last_funnel_step[0] + 1
+
+                # Look for step details in the *previous* memory state
+                # (when the step was active it was: "Step N: 'Q' - action")
+                step_data = _parse_funnel_step_from_memory(_last_memory[0], next_step)
+                if not step_data:
+                    # Try current memory too (sometimes it mentions the completed step)
+                    step_data = _parse_funnel_step_from_memory(memory, next_step)
+                if not step_data:
+                    step_data = {
+                        "step_number": next_step,
+                        "step_type": "question",
+                        "question_text": None,
+                        "action_taken": "completed",
+                        "log": f"Step {next_step} completed",
+                    }
+
+                step_data["url"] = _last_url[0]
+                callback_steps.append(step_data)
+                if on_progress:
+                    on_progress({"step": next_step, "type": "question", "message": step_data["log"]})
+                _last_funnel_step[0] = next_step
+
+        _last_memory[0] = memory
+        _last_url[0] = url
+
     try:
         agent = Agent(
             task=prompt,
             llm=get_llm(),
             browser=browser,
             llm_timeout=180,
+            register_new_step_callback=_step_callback,
         )
         result = await agent.run()
         raw = _extract_all_content(result)
     finally:
         await browser.stop()
 
-    # Parse structured output from extracted content
+    # Parse structured output from extracted content (highest quality, most structured)
     parsed = _parse_json_lines(raw)
 
-    steps = []
+    steps: list[dict] = []
     pricing = None
     summary = None
 
@@ -107,16 +197,8 @@ async def run_traversal(
         elif "step_number" in obj:
             steps.append(obj)
 
-        # Fire progress callback for each meaningful step
         if on_progress and "step_number" in obj and not obj.get("summary"):
-            log_msg = obj.get("log")
-            if not log_msg:
-                parts = []
-                if obj.get("question_text"):
-                    parts.append(obj["question_text"])
-                if obj.get("action_taken"):
-                    parts.append(f"→ {obj['action_taken']}")
-                log_msg = " ".join(parts) if parts else None
+            log_msg = obj.get("log") or obj.get("question_text") or ""
             if log_msg:
                 on_progress({
                     "step": obj.get("step_number", 0),
@@ -124,35 +206,26 @@ async def run_traversal(
                     "message": log_msg,
                 })
 
-    # If no parsed steps, build steps from agent history as fallback
-    if not steps:
-        try:
-            for i, item in enumerate(result.history, 1):
-                model_output = item.model_output
-                if model_output:
-                    step = {
-                        "step_number": i,
-                        "step_type": "info",
-                        "question_text": getattr(model_output, 'evaluation_previous_goal', None),
-                        "action_taken": getattr(model_output, 'next_goal', None),
-                        "log": getattr(model_output, 'memory', None),
-                    }
-                    # Get URL from action results
-                    if item.result:
-                        for r in item.result:
-                            if hasattr(r, 'extracted_content') and r.extracted_content:
-                                if '🔗 Navigated to' in r.extracted_content:
-                                    step["url"] = r.extracted_content.replace('🔗 Navigated to ', '')
-                    steps.append(step)
-
-                    if on_progress and step.get("log"):
-                        on_progress({
-                            "step": i,
-                            "type": "info",
-                            "message": step["log"],
-                        })
-        except Exception as e:
-            log.warning("Failed to extract steps from history: %s", e)
+    # Merge: prefer parsed (structured) steps; fill gaps with callback steps
+    if steps:
+        parsed_nums = {s["step_number"] for s in steps}
+        for s in callback_steps:
+            if s.get("step_number") not in parsed_nums:
+                steps.append(s)
+        steps.sort(key=lambda s: s.get("step_number", 0))
+    elif callback_steps:
+        # Nothing from extracted content — use what the callback captured
+        steps = callback_steps
+        # Also check if pricing was in memory
+        for item in result.history if hasattr(result, 'history') else []:
+            if item.model_output and item.model_output.memory:
+                pricing_candidates = [
+                    s for s in _parse_json_lines(item.model_output.memory)
+                    if s.get("step_type") == "pricing"
+                ]
+                if pricing_candidates:
+                    pricing = pricing_candidates[-1]
+                    break
 
     if not summary:
         summary = {

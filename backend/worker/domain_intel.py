@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import requests
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from backend.db import get_db
@@ -160,6 +161,7 @@ def run_fingerprint_extraction(competitor_id: str, competitor_name: str, url: st
                 "fingerprint_value": code["id"],
                 "detected_at_url": result["final_url"],
                 "raw_snippet": code.get("snippet"),
+                "captured_at": datetime.now(timezone.utc).isoformat(),
             }, on_conflict="competitor_id,fingerprint_type,fingerprint_value").execute()
             fingerprints_stored += 1
         except Exception:
@@ -174,6 +176,7 @@ def run_fingerprint_extraction(competitor_id: str, competitor_name: str, url: st
                 "fingerprint_type": "tech_stack",
                 "fingerprint_value": result["tech_stack"],
                 "detected_at_url": result["final_url"],
+                "captured_at": datetime.now(timezone.utc).isoformat(),
             }, on_conflict="competitor_id,fingerprint_type,fingerprint_value").execute()
             fingerprints_stored += 1
         except Exception:
@@ -188,6 +191,7 @@ def run_fingerprint_extraction(competitor_id: str, competitor_name: str, url: st
                 "fingerprint_type": "hosting",
                 "fingerprint_value": result["hosting"],
                 "detected_at_url": result["final_url"],
+                "captured_at": datetime.now(timezone.utc).isoformat(),
             }, on_conflict="competitor_id,fingerprint_type,fingerprint_value").execute()
             fingerprints_stored += 1
         except Exception:
