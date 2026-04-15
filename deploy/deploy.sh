@@ -23,11 +23,13 @@ echo "=== Deploy complete ==="
 echo "Commit: $(git rev-parse --short HEAD)"
 echo "Time:   $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
-# Health check
-sleep 2
-if curl -sf http://127.0.0.1:4318/api/health > /dev/null; then
-  echo "Health check: OK"
-else
-  echo "Health check: FAILED"
-  exit 1
-fi
+# Health check — retry to tolerate uvicorn startup race
+for i in $(seq 1 15); do
+  if curl -sf http://127.0.0.1:4318/api/health > /dev/null; then
+    echo "Health check: OK (attempt $i)"
+    exit 0
+  fi
+  sleep 1
+done
+echo "Health check: FAILED after 15s"
+exit 1
