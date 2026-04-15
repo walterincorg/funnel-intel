@@ -136,3 +136,31 @@ def connect_toolkit(payload: ConnectRequest):
         "redirect_url": link_payload.get("redirect_url"),
         "connected_account_id": link_payload.get("connected_account_id"),
     }
+
+
+@router.get("/connection-status")
+def connection_status(toolkit_slug: str, user_id: str):
+    try:
+        response = requests.get(
+            f"{COMPOSIO_BASE_URL}/connected_accounts",
+            headers=composio_headers(),
+            params={
+                "toolkit_slugs": toolkit_slug,
+                "user_ids": user_id,
+                "statuses": "ACTIVE",
+                "limit": 20,
+            },
+            timeout=30,
+        )
+    except requests.RequestException as error:
+        raise HTTPException(status_code=502, detail=f"Composio request failed: {error}") from error
+
+    if not response.ok:
+        raise HTTPException(status_code=502, detail=f"Composio error: {response.text}")
+
+    payload = response.json()
+    items = payload.get("items", [])
+    return {
+        "connected": len(items) > 0,
+        "count": len(items),
+    }

@@ -100,6 +100,12 @@ function isVirtualComputerNeeded(messageContent: string): boolean {
   return /needed:\s*yes/i.test(messageContent)
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
 const fallbackConnections: ConnectionItem[] = [
   {
     id: 'gmail',
@@ -467,6 +473,7 @@ export default function App() {
   const [selectedModelPreset, setSelectedModelPreset] = useState<ChatModelPreset>('advanced')
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
   const [vcConnectedByCard, setVcConnectedByCard] = useState<Record<string, string[]>>({})
+  const [vcAuthPendingByCard, setVcAuthPendingByCard] = useState<Record<string, string[]>>({})
   const requestAbortRef = useRef<AbortController | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -653,13 +660,22 @@ export default function App() {
     setChatError(null)
   }
 
-  async function onConnectToolkit(item: ConnectionItem): Promise<boolean> {
+  function buildComposioUserId(overrideThreadId?: string): string {
+    return `walter-user-${overrideThreadId ?? activeChatId}`
+  }
+
+  async function checkToolkitConnected(toolkitSlug: string, userId: string): Promise<boolean> {
+    const status = await api.getComposioConnectionStatus(toolkitSlug, userId)
+    return status.connected
+  }
+
+  async function onConnectToolkit(item: ConnectionItem, userId?: string): Promise<boolean> {
     setConnectingToolkitSlug(item.slug)
     setConnectionsError(null)
     try {
       const result = await api.connectComposioToolkit(
         item.slug,
-        `walter-user-${activeChatId}`,
+        userId ?? buildComposioUserId(),
         window.location.href,
       )
       if (result.redirect_url) {
@@ -680,17 +696,73 @@ export default function App() {
   }
 
   async function onConnectVirtualToolkit(cardKey: string, item: ConnectionItem): Promise<void> {
-    const connected = await onConnectToolkit(item)
-    if (!connected) {
+    const userId = buildComposioUserId()
+    const pendingForCard = vcAuthPendingByCard[cardKey] ?? []
+    const isPendingCheck = pendingForCard.includes(item.slug)
+
+    try {
+      const connectedNow = await checkToolkitConnected(item.slug, userId)
+      if (connectedNow) {
+        setVcConnectedByCard((prev) => {
+          const existing = prev[cardKey] ?? []
+          if (existing.includes(item.slug)) {
+            return prev
+          }
+          return { ...prev, [cardKey]: [...existing, item.slug] }
+        })
+        setVcAuthPendingByCard((prev) => ({
+          ...prev,
+          [cardKey]: (prev[cardKey] ?? []).filter((slug) => slug !== item.slug),
+        }))
+        return
+      }
+
+      if (isPendingCheck) {
+        setChatError(`Authorization for ${item.name} is still pending. Finish OAuth, then click again to re-check.`)
+        return
+      }
+    } catch (error) {
+      console.error(error)
+    }
+
+    const started = await onConnectToolkit(item, userId)
+    if (!started) {
       return
     }
-    setVcConnectedByCard((prev) => {
+
+    setVcAuthPendingByCard((prev) => {
       const existing = prev[cardKey] ?? []
       if (existing.includes(item.slug)) {
         return prev
       }
       return { ...prev, [cardKey]: [...existing, item.slug] }
     })
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await sleep(1500)
+      try {
+        const connected = await checkToolkitConnected(item.slug, userId)
+        if (!connected) {
+          continue
+        }
+        setVcConnectedByCard((prev) => {
+          const existing = prev[cardKey] ?? []
+          if (existing.includes(item.slug)) {
+            return prev
+          }
+          return { ...prev, [cardKey]: [...existing, item.slug] }
+        })
+        setVcAuthPendingByCard((prev) => ({
+          ...prev,
+          [cardKey]: (prev[cardKey] ?? []).filter((slug) => slug !== item.slug),
+        }))
+        return
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
+    setChatError(`Authorization for ${item.name} is still pending. Finish OAuth, then click again to re-check.`)
   }
 
   function onCreateVirtualComputer(cardKey: string, requiredToolkits: ConnectionItem[]): void {
@@ -1019,6 +1091,7 @@ export default function App() {
                   const cardKey = `${activeChatId}-${index}`
                   const requiredToolkits = inferVirtualComputerToolkits(message.content)
                   const linked = vcConnectedByCard[cardKey] ?? []
+                  const authPending = vcAuthPendingByCard[cardKey] ?? []
                   const remaining = requiredToolkits.filter((toolkit) => !linked.includes(toolkit.slug))
                   const allConnected = remaining.length === 0
                   const vmNeeded = isVirtualComputerNeeded(message.content)
@@ -1034,6 +1107,7 @@ export default function App() {
                           <div className="vc-tool-list">
                             {requiredToolkits.map((toolkit) => {
                               const connected = linked.includes(toolkit.slug)
+                              const pending = authPending.includes(toolkit.slug)
                               return (
                                 <button
                                   key={`${cardKey}-${toolkit.slug}`}
@@ -1044,7 +1118,9 @@ export default function App() {
                                 >
                                   {connected
                                     ? `Connected: ${toolkit.name}`
-                                    : `Connect ${toolkit.name} via Composio`}
+                                    : pending
+                                      ? `Check ${toolkit.name} connection`
+                                      : `Connect ${toolkit.name} via Composio`}
                                 </button>
                               )
                             })}

@@ -130,6 +130,11 @@ export interface ComposioConnectResponse {
   connected_account_id?: string
 }
 
+export interface ComposioConnectionStatus {
+  connected: boolean
+  count: number
+}
+
 // --- API Functions ---
 
 export const api = {
@@ -191,4 +196,8 @@ export const api = {
         callback_url: callbackUrl,
       }),
     }),
+  getComposioConnectionStatus: (toolkitSlug: string, userId: string) =>
+    request<ComposioConnectionStatus>(
+      `/composio/connection-status?toolkit_slug=${encodeURIComponent(toolkitSlug)}&user_id=${encodeURIComponent(userId)}`,
+    ),
 }
