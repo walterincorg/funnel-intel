@@ -212,10 +212,13 @@ def process_job(job: dict):
                 for c in diff.changes
             ]
 
-            # Send alerts for changes
-            if diff.has_changes:
+            # Alert only on question, answer-options, pricing, or discount changes.
+            # The `structural` category (step-count summary) is dropped because
+            # per-step messages in the `funnel` category already convey it.
+            alert_changes = [c for c in diff.changes if c.category in ("funnel", "pricing")]
+            if alert_changes:
                 alert_lines = [f"🔔 {comp['name']} — funnel changes detected:"]
-                for c in diff.changes:
+                for c in alert_changes:
                     icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(c.severity, "⚪")
                     alert_lines.append(f"  {icon} [{c.severity}] {c.description}")
                 send_alert("\n".join(alert_lines))
