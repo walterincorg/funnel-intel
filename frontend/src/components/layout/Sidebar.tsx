@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, ScanSearch, DollarSign, GitCompare, Megaphone, Globe, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Users, ScanSearch, DollarSign, GitCompare, Megaphone, Globe, Menu, X, Rocket } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 const links = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/', icon: Rocket, label: 'Ship List' },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/competitors', icon: Users, label: 'Competitors' },
   { to: '/pricing', icon: DollarSign, label: 'Pricing' },
   { to: '/compare', icon: GitCompare, label: 'Compare' },

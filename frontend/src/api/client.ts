@@ -256,6 +256,73 @@ export interface Version {
   deployed_at: string
 }
 
+// --- Ship list / synthesis types ---
+
+export interface ShipListItem {
+  id: string
+  week_of: string
+  rank: number
+  headline: string
+  recommendation: string
+  test_plan: string
+  effort_estimate: 'XS' | 'S' | 'M' | 'L'
+  confidence: number
+  pattern_ids: string[]
+  swipe_file_refs: Array<{ type: string; id: string; label?: string }> | null
+  status: 'proposed' | 'shipping' | 'shipped' | 'skipped' | 'expired'
+  shipped_at: string | null
+  generated_by_run_id: string | null
+  created_at: string
+}
+
+export interface SynthesisRun {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'empty' | 'aborted_stale' | 'failed'
+  week_of: string
+  trigger: 'scheduled' | 'manual'
+  candidate_pattern_count: number | null
+  prior_outcome_count: number | null
+  stale_sources: Array<Record<string, unknown>> | null
+  patterns_found: number | null
+  patterns_persisted: number | null
+  ship_list_item_count: number | null
+  items_rejected_shape: number | null
+  items_rejected_citation: number | null
+  retries: number | null
+  llm_cost_cents: number | null
+  input_tokens: number | null
+  output_tokens: number | null
+  started_at: string | null
+  completed_at: string | null
+  duration_s: number | null
+  error: string | null
+  created_at: string
+}
+
+export interface ShipListResponse {
+  week_of: string | null
+  items: ShipListItem[]
+  run: SynthesisRun | null
+  available_weeks: Array<{ week_of: string; item_count: number }>
+  is_stale: boolean
+  stale_source_count: number
+}
+
+export interface FreshnessRow {
+  source: string
+  competitor_id: string
+  last_success_at: string | null
+  last_failure_at: string | null
+  last_error: string | null
+  updated_at: string
+  is_stale: boolean
+}
+
+export interface FreshnessResponse {
+  rows: FreshnessRow[]
+  stale_count: number
+}
+
 // --- API Functions ---
 
 export const api = {
@@ -335,6 +402,32 @@ export const api = {
   domainRuns: () => request<DomainIntelRun[]>('/domains/runs'),
   triggerDomainScan: () =>
     request<{ run_id: string; status: string }>('/domains/scan', { method: 'POST' }),
+
+  // Ship list / synthesis
+  getShipList: (week?: string) =>
+    request<ShipListResponse>(week ? `/ship-list?week=${week}` : '/ship-list'),
+  listShipListWeeks: () =>
+    request<Array<{ week_of: string; item_count: number }>>('/ship-list/weeks'),
+  updateShipItemStatus: (id: string, status: ShipListItem['status']) =>
+    request<ShipListItem>(`/ship-list/${id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    }),
+  recordShipItemOutcome: (
+    id: string,
+    outcome: 'won' | 'lost' | 'inconclusive' | 'not_tested',
+    notes?: string,
+  ) =>
+    request<{ id: string }>(`/ship-list/${id}/outcome`, {
+      method: 'POST',
+      body: JSON.stringify({ outcome, notes }),
+    }),
+  listSynthesisRuns: () => request<SynthesisRun[]>('/ship-list/synthesis-runs'),
+  triggerSynthesis: () =>
+    request<{ run_id: string; status: string }>('/ship-list/synthesis/trigger', {
+      method: 'POST',
+    }),
+  getFreshness: () => request<FreshnessResponse>('/ship-list/freshness'),
 
   // System
   version: () => request<Version>('/version'),

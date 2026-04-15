@@ -9,6 +9,7 @@ import { Pricing } from '@/pages/Pricing'
 import { Compare } from '@/pages/Compare'
 import { AdIntel } from '@/pages/AdIntel'
 import { DomainIntel } from '@/pages/DomainIntel'
+import { ShipList } from '@/pages/ShipList'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,7 +27,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<Shell />}>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<ShipList />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/competitors" element={<Competitors />} />
             <Route path="/competitors/:id" element={<CompetitorDetail />} />
             <Route path="/scans/:id" element={<ScanDetail />} />
@@ -34,6 +36,7 @@ export default function App() {
             <Route path="/compare" element={<Compare />} />
             <Route path="/ad-intel" element={<AdIntel />} />
             <Route path="/domain-intel" element={<DomainIntel />} />
+            <Route path="/ship-list" element={<ShipList />} />
           </Route>
         </Routes>
       </BrowserRouter>
