@@ -17,7 +17,8 @@ npm run build
 cd ..
 
 echo "=== Restarting services ==="
-sudo systemctl restart funnel-dashboard funnel-worker
+# Legacy single-worker unit is masked; use the funnel-worker@ template instances.
+sudo systemctl restart funnel-dashboard funnel-worker@1.service funnel-worker@2.service funnel-worker@3.service
 
 echo "=== Deploy complete ==="
 echo "Commit: $(git rev-parse --short HEAD)"
