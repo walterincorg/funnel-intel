@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Megaphone, Play, TrendingUp, Trophy, Sparkles, ArrowRightLeft, X, Zap, ExternalLink, CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, Brain } from 'lucide-react'
-import { api, type Ad, type AdSignal, type AdSnapshot, type AdScrapeRun, type CompetitorAnalysis } from '@/api/client'
+import { api, type Ad, type AdSignal, type AdSnapshot, type AdScrapeRun } from '@/api/client'
 import { cn } from '@/lib/utils'
 
 const SIGNAL_CONFIG: Record<string, { label: string; icon: typeof Megaphone; color: string; bg: string }> = {

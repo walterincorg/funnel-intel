@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, type DomainFingerprint, type OperatorCluster, type DiscoveredDomain, type DomainChange } from '@/api/client'
+import { api, type DomainFingerprint } from '@/api/client'
 import { cn } from '@/lib/utils'
 
 type Tab = 'matrix' | 'clusters' | 'domains' | 'changes'
