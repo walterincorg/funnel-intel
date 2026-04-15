@@ -84,6 +84,30 @@ def get_ship_list(week: str | None = None) -> dict[str, Any]:
         except Exception:
             log.exception("get_ship_list: items query failed")
 
+    # 2b. Enrich items with their latest outcome (for the UI badge and
+    # feedback prompt). Single batch query by item ids.
+    if items:
+        item_ids = [i["id"] for i in items if i.get("id")]
+        try:
+            outcomes_res = (
+                db.table("ship_list_outcomes")
+                .select("ship_list_item_id,outcome,notes,recorded_at")
+                .in_("ship_list_item_id", item_ids)
+                .order("recorded_at", desc=True)
+                .execute()
+            )
+            latest_by_item: dict[str, dict] = {}
+            for row in outcomes_res.data or []:
+                iid = row["ship_list_item_id"]
+                if iid not in latest_by_item:
+                    latest_by_item[iid] = row
+            for item in items:
+                item["latest_outcome"] = latest_by_item.get(item["id"])
+        except Exception:
+            log.exception("get_ship_list: outcomes enrichment failed")
+            for item in items:
+                item.setdefault("latest_outcome", None)
+
     # 3. Pull the most recent synthesis_run for this week (if any).
     run: dict | None = None
     if target_week is not None:
@@ -133,12 +157,41 @@ def list_weeks() -> list[dict]:
 
 @router.post("/{item_id}/status", status_code=200)
 def update_item_status(item_id: str, body: StatusUpdate) -> dict:
-    """Transition an item's status (the 'Shipping this' button path)."""
+    """Transition an item's status (the 'Shipping this' button path).
+
+    Side effects on key transitions:
+      proposed -> shipping : stamp shipping_at (starts the 14-day clock)
+      * -> shipped         : stamp shipped_at; also stamp shipping_at if
+                             the item went directly from proposed->shipped
+                             without passing through shipping
+    """
     db = get_db()
 
+    # Read current row so we can make idempotent decisions about timestamps.
+    try:
+        current_res = (
+            db.table("ship_list_items")
+            .select("shipping_at,shipped_at")
+            .eq("id", item_id)
+            .single()
+            .execute()
+        )
+    except Exception as e:
+        log.exception("update_item_status: fetch failed")
+        raise HTTPException(500, f"fetch failed: {e}")
+    if not current_res.data:
+        raise HTTPException(404, "ship list item not found")
+    current = current_res.data
+
+    now_iso = datetime.now(timezone.utc).isoformat()
     update: dict[str, Any] = {"status": body.status}
-    if body.status == "shipped":
-        update["shipped_at"] = datetime.now(timezone.utc).isoformat()
+
+    if body.status == "shipping" and current.get("shipping_at") is None:
+        update["shipping_at"] = now_iso
+    elif body.status == "shipped":
+        update["shipped_at"] = now_iso
+        if current.get("shipping_at") is None:
+            update["shipping_at"] = now_iso
 
     try:
         res = (

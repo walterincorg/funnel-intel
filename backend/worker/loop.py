@@ -12,6 +12,7 @@ from backend.worker.alerts import send_alert
 from backend.worker.ad_loop import maybe_run_ad_scrape
 from backend.worker.domain_intel_loop import maybe_run_domain_intel
 from backend.worker.synthesis_loop import maybe_run_synthesis, cleanup_stale_synthesis_runs
+from backend.worker.feedback_loop import maybe_run_feedback_check
 from backend.worker import freshness
 
 log = logging.getLogger(__name__)
@@ -271,6 +272,10 @@ def main():
                     maybe_run_synthesis()
                 except Exception:
                     log.exception("Synthesis check failed")
+                try:
+                    maybe_run_feedback_check()
+                except Exception:
+                    log.exception("Feedback check failed")
             time.sleep(POLL_INTERVAL)
     log.info("Worker stopped")
 

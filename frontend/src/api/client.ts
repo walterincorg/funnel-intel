@@ -258,6 +258,15 @@ export interface Version {
 
 // --- Ship list / synthesis types ---
 
+export type ShipListOutcomeKind = 'won' | 'lost' | 'inconclusive' | 'not_tested'
+
+export interface ShipListOutcome {
+  ship_list_item_id: string
+  outcome: ShipListOutcomeKind
+  notes: string | null
+  recorded_at: string
+}
+
 export interface ShipListItem {
   id: string
   week_of: string
@@ -270,9 +279,12 @@ export interface ShipListItem {
   pattern_ids: string[]
   swipe_file_refs: Array<{ type: string; id: string; label?: string }> | null
   status: 'proposed' | 'shipping' | 'shipped' | 'skipped' | 'expired'
+  shipping_at: string | null
   shipped_at: string | null
+  outcome_alerted_at: string | null
   generated_by_run_id: string | null
   created_at: string
+  latest_outcome: ShipListOutcome | null
 }
 
 export interface SynthesisRun {

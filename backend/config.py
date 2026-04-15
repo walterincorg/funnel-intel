@@ -42,6 +42,11 @@ SYNTHESIS_HOUR_UTC = int(os.getenv("SYNTHESIS_HOUR_UTC", "7"))
 # How many back-to-back failures in one calendar day before we stop retrying.
 SYNTHESIS_MAX_FAILURES_PER_DAY = int(os.getenv("SYNTHESIS_MAX_FAILURES_PER_DAY", "3"))
 
+# Feedback loop — how long after an item entered `shipping` before we
+# prompt the founder to record an outcome. 14 days is the default because
+# most DTC funnel tests need about two weeks of data to reach significance.
+FEEDBACK_WAIT_DAYS = int(os.getenv("FEEDBACK_WAIT_DAYS", "14"))
+
 # Domain Intelligence APIs
 SPYONWEB_API_TOKEN = os.getenv("SPYONWEB_API_TOKEN", "")
 WHOISXML_API_KEY = os.getenv("WHOISXML_API_KEY", "")

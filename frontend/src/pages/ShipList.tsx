@@ -11,7 +11,13 @@ import {
   Play,
   ChevronDown,
 } from 'lucide-react'
-import { api, type ShipListItem, type ShipListResponse, type SynthesisRun } from '@/api/client'
+import {
+  api,
+  type ShipListItem,
+  type ShipListOutcomeKind,
+  type ShipListResponse,
+  type SynthesisRun,
+} from '@/api/client'
 import { cn } from '@/lib/utils'
 
 // ---------- Helpers ----------
@@ -29,6 +35,29 @@ const STATUS_CONFIG: Record<ShipListItem['status'], { label: string; color: stri
   shipped: { label: 'Shipped', color: 'bg-success/10 text-success' },
   skipped: { label: 'Skipped', color: 'bg-bg-hover text-text/50' },
   expired: { label: 'Expired', color: 'bg-bg-hover text-text/50' },
+}
+
+const OUTCOME_CONFIG: Record<ShipListOutcomeKind, { label: string; color: string }> = {
+  won: { label: 'Won', color: 'bg-success/10 text-success' },
+  lost: { label: 'Lost', color: 'bg-danger/10 text-danger' },
+  inconclusive: { label: 'Inconclusive', color: 'bg-warning/10 text-warning' },
+  not_tested: { label: 'Not tested', color: 'bg-bg-hover text-text/50' },
+}
+
+const FEEDBACK_WAIT_DAYS = 14
+
+function daysSince(iso: string | null): number | null {
+  if (!iso) return null
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return null
+  return Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24))
+}
+
+function isItemDueForOutcome(item: ShipListItem): boolean {
+  if (item.latest_outcome) return false
+  if (item.status !== 'shipping' && item.status !== 'shipped') return false
+  const days = daysSince(item.shipping_at)
+  return days !== null && days >= FEEDBACK_WAIT_DAYS
 }
 
 function formatWeekOf(week: string): string {
@@ -150,13 +179,19 @@ function ShipListItemCard({
   item,
   index,
   onStatusChange,
+  onOutcomeChange,
 }: {
   item: ShipListItem
   index: number
   onStatusChange: (status: ShipListItem['status']) => void
+  onOutcomeChange: (outcome: ShipListOutcomeKind) => void
 }) {
   const [expanded, setExpanded] = useState(index === 0)
   const statusConfig = STATUS_CONFIG[item.status]
+  const outcome = item.latest_outcome
+  const outcomeConfig = outcome ? OUTCOME_CONFIG[outcome.outcome] : null
+  const showOutcomePrompt = isItemDueForOutcome(item)
+  const daysSinceShipping = daysSince(item.shipping_at)
 
   return (
     <article className="bg-bg-card border border-border rounded-xl overflow-hidden">
@@ -173,14 +208,27 @@ function ShipListItemCard({
               </h3>
             </div>
           </div>
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0',
-              statusConfig.color,
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {outcomeConfig && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
+                  outcomeConfig.color,
+                )}
+                title={outcome?.notes || undefined}
+              >
+                {outcomeConfig.label}
+              </span>
             )}
-          >
-            {statusConfig.label}
-          </span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
+                statusConfig.color,
+              )}
+            >
+              {statusConfig.label}
+            </span>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-text/60">
@@ -273,12 +321,55 @@ function ShipListItemCard({
         )}
       </div>
 
+      {/* Outcome prompt — shown when the 14-day clock has elapsed and no
+          outcome has been recorded yet. */}
+      {showOutcomePrompt && (
+        <div className="mx-5 mb-5 p-4 rounded-lg border border-accent/30 bg-accent/5">
+          <div className="flex items-start gap-3">
+            <Zap size={16} className="text-accent mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="text-sm text-text-bright font-medium mb-1">
+                How did this test go?
+              </div>
+              <div className="text-xs text-text/60 mb-3">
+                It's been {daysSinceShipping} days since you started shipping this.
+                Record the outcome so future recommendations can learn from it.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(['won', 'lost', 'inconclusive', 'not_tested'] as ShipListOutcomeKind[]).map((kind) => (
+                  <button
+                    key={kind}
+                    onClick={() => onOutcomeChange(kind)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                      OUTCOME_CONFIG[kind].color,
+                      'hover:opacity-80',
+                    )}
+                  >
+                    {OUTCOME_CONFIG[kind].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recorded outcome notes, if any */}
+      {outcome?.notes && !showOutcomePrompt && (
+        <div className="mx-5 mb-5 p-3 rounded-lg bg-bg-hover/50 text-xs text-text/70">
+          <span className="text-text/40">Outcome notes:</span> {outcome.notes}
+        </div>
+      )}
+
       {/* Footer actions */}
       <footer className="px-5 py-3 bg-bg border-t border-border flex items-center justify-between">
         <div className="text-xs text-text/40">
           {item.status === 'shipped' && item.shipped_at
             ? `Shipped ${new Date(item.shipped_at).toLocaleDateString()}`
-            : 'Ready for action'}
+            : item.status === 'shipping' && daysSinceShipping !== null
+              ? `Shipping ${daysSinceShipping}d`
+              : 'Ready for action'}
         </div>
         <div className="flex items-center gap-2">
           {item.status === 'proposed' && (
@@ -348,6 +439,12 @@ export function ShipList() {
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: ShipListItem['status'] }) =>
       api.updateShipItemStatus(id, status),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ship-list'] }),
+  })
+
+  const outcomeMut = useMutation({
+    mutationFn: ({ id, outcome }: { id: string; outcome: ShipListOutcomeKind }) =>
+      api.recordShipItemOutcome(id, outcome),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ship-list'] }),
   })
 
@@ -445,6 +542,7 @@ export function ShipList() {
               item={item}
               index={i}
               onStatusChange={(status) => statusMut.mutate({ id: item.id, status })}
+              onOutcomeChange={(outcome) => outcomeMut.mutate({ id: item.id, outcome })}
             />
           ))}
         </div>
