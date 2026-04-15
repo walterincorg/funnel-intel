@@ -43,10 +43,13 @@ def main() -> int:
             skipped_pending += 1
             continue
 
+        # Only completed scans count as "recent". A failed scan shouldn't
+        # prevent re-enqueue — otherwise a broken model locks us out for 90 min.
         last = (
             db.table("scan_runs")
             .select("created_at")
             .eq("competitor_id", comp["id"])
+            .eq("status", "completed")
             .order("created_at", desc=True)
             .limit(1)
             .execute()
