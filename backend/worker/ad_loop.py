@@ -14,6 +14,7 @@ from backend.worker.ad_scraper import scrape_competitor_ads, normalize_ad
 from backend.worker.ad_analysis import run_competitor_analysis
 from backend.worker.ad_signals import compute_signals
 from backend.worker.alerts import send_alert
+from backend.worker.creative_cluster import cluster_ads_for_competitor
 from backend.worker import freshness
 
 log = logging.getLogger(__name__)
@@ -221,7 +222,18 @@ def _scrape_one_competitor(
     if signals:
         db.table("ad_signals").insert(signals).execute()
 
-    # 6. Alert on high-severity signals
+    # 6. Creative similarity clustering — isolated from scrape success, so a
+    # clustering failure doesn't break the ingest pipeline or affect freshness.
+    try:
+        cluster_stats = cluster_ads_for_competitor(competitor_id, normalized, ad_id_map)
+        log.info(
+            "  %s: clustering — %d new clusters, %d joined existing",
+            name, cluster_stats["new_clusters"], cluster_stats["joined_existing"],
+        )
+    except Exception:
+        log.exception("Creative clustering failed for %s", name)
+
+    # 7. Alert on high-severity signals
     high_signals = [s for s in signals if s["severity"] in ("high", "critical")]
     if high_signals:
         lines = [f"Ad Intel — {name}:"]
