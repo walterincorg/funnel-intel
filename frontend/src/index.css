@@ -400,12 +400,12 @@ button {
   position: absolute;
   right: 0;
   bottom: calc(100% + 8px);
-  width: 370px;
+  width: 320px;
   background: #151a27;
   border: 1px solid #2c3348;
-  border-radius: 12px;
+  border-radius: 10px;
   box-shadow: 0 28px 46px rgba(0, 0, 0, 0.48);
-  padding: 8px;
+  padding: 6px;
   z-index: 25;
 }
 
@@ -416,8 +416,8 @@ button {
   background: transparent !important;
   color: #e8edf9;
   text-align: left;
-  padding: 12px;
-  border-radius: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
   cursor: pointer;
   position: relative;
   display: block !important;
@@ -434,34 +434,37 @@ button {
 }
 
 .model-menu-head strong {
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .model-menu-head span {
   color: #b5c0d6;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .model-menu-head em {
   margin-left: auto;
   color: #97a2bb;
   font-style: normal;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .model-menu-item small {
   display: block;
   color: #9ca7bf;
-  margin-top: 4px;
-  max-width: 290px;
-  font-size: 13px;
-  line-height: 1.4;
+  margin-top: 2px;
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .model-menu-item svg {
   position: absolute;
-  top: 14px;
-  right: 12px;
+  top: 10px;
+  right: 10px;
   color: #8ad1a6;
 }
 
@@ -1113,8 +1116,8 @@ button {
   }
 
   .model-menu {
-    width: min(88vw, 360px);
-    right: -54px;
+    width: min(84vw, 320px);
+    right: 0;
   }
 }
 
