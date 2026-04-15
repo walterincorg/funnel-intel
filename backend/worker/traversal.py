@@ -6,12 +6,15 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 
 from browser_use import Agent, Browser, BrowserProfile
 from backend.config import get_llm
 from backend.worker.strategies import build_traversal_prompt, build_guided_prompt
 
 log = logging.getLogger(__name__)
+
+_PALM_IMAGE_PATH = Path(__file__).resolve().parents[1] / "assets" / "nebula_palm.png"
 
 
 def _parse_json_lines(text: str) -> list[dict]:
@@ -76,6 +79,7 @@ async def run_traversal(
     config: dict | None = None,
     baseline_steps: list[dict] | None = None,
     on_progress: callable | None = None,
+    competitor_slug: str | None = None,
 ) -> dict:
     """
     Run a funnel traversal and return structured results.
@@ -88,10 +92,21 @@ async def run_traversal(
             "raw_output": str,
         }
     """
+    available_file_paths: list[str] = []
+    is_nebula = (
+        (competitor_slug or "").lower() == "nebula"
+        or "nebula" in (competitor_name or "").lower()
+    )
+    if is_nebula and _PALM_IMAGE_PATH.exists():
+        available_file_paths.append(str(_PALM_IMAGE_PATH))
+
     if baseline_steps:
+        # TODO: thread available_files into guided prompt too when Nebula baselines exist.
         prompt = build_guided_prompt(competitor_name, funnel_url, baseline_steps)
     else:
-        prompt = build_traversal_prompt(competitor_name, funnel_url, config)
+        prompt = build_traversal_prompt(
+            competitor_name, funnel_url, config, available_files=available_file_paths,
+        )
 
     headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
     browser = Browser(
@@ -175,6 +190,7 @@ async def run_traversal(
             browser=browser,
             llm_timeout=180,
             register_new_step_callback=_step_callback,
+            available_file_paths=available_file_paths or None,
         )
         result = await agent.run()
         raw = _extract_all_content(result)
@@ -250,7 +266,10 @@ def run_traversal_sync(
     config: dict | None = None,
     baseline_steps: list[dict] | None = None,
     on_progress: callable | None = None,
+    competitor_slug: str | None = None,
 ) -> dict:
     """Synchronous wrapper for run_traversal."""
-    coro = run_traversal(competitor_name, funnel_url, config, baseline_steps, on_progress)
+    coro = run_traversal(
+        competitor_name, funnel_url, config, baseline_steps, on_progress, competitor_slug,
+    )
     return asyncio.run(asyncio.wait_for(coro, timeout=SCAN_TIMEOUT))

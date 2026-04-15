@@ -165,6 +165,7 @@ def process_job(job: dict):
             config=comp.get("config"),
             baseline_steps=baseline_steps_data,
             on_progress=_on_progress,
+            competitor_slug=comp.get("slug"),
         )
 
         # Store steps

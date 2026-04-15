@@ -12,11 +12,29 @@ def get_default_strategy() -> dict:
     }
 
 
-def build_traversal_prompt(competitor_name: str, funnel_url: str, config: dict | None = None) -> str:
+def build_traversal_prompt(
+    competitor_name: str,
+    funnel_url: str,
+    config: dict | None = None,
+    available_files: list[str] | None = None,
+) -> str:
     """Build the browser-use agent prompt for freeform funnel traversal."""
     cfg = config or get_default_strategy()
     stop_keywords = ", ".join(cfg.get("stop_at", ["paywall"]))
     max_steps = cfg.get("max_steps", 100)
+
+    files_block = ""
+    if available_files:
+        lines = "\n".join(f"- {p}" for p in available_files)
+        files_block = f"""
+
+AVAILABLE FILES:
+You have these local files pre-provided by the operator. If the funnel asks
+you to upload a file matching one of these (e.g. a palm/hand scan image for a
+biometric gate), call the `upload_file` action with the EXACT path below. Do
+not try to browse for other files or fabricate a path.
+{lines}
+"""
 
     return f"""You are traversing the marketing funnel for "{competitor_name}".
 
@@ -55,7 +73,7 @@ If you see a PRICING page, output:
 
 After the last step, output a summary line:
 {{"summary": true, "total_steps": N, "stop_reason": "paywall|funnel_reset|end_of_funnel|max_steps"}}
-"""
+{files_block}"""
 
 
 def build_guided_prompt(competitor_name: str, funnel_url: str,
