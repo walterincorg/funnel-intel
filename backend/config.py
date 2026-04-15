@@ -27,6 +27,13 @@ AD_SCRAPE_COUNTRY_CODE = os.getenv("AD_SCRAPE_COUNTRY_CODE", "US")
 # Freshness thresholds — how stale is too stale for synthesis
 FRESHNESS_STALE_HOURS = int(os.getenv("FRESHNESS_STALE_HOURS", "48"))
 
+# Synthesis-layer cost cap (USD). Hard ceiling on any single LLM call in the
+# synthesis pipeline — projected cost above this aborts before the network
+# call. Default $10 is huge compared to expected Sonnet 4 cost (~$0.05 per
+# ship list generation), so in practice this only triggers on a runaway
+# prompt or a bad max_tokens value.
+SYNTHESIS_COST_CAP_USD = float(os.getenv("SYNTHESIS_COST_CAP_USD", "10.0"))
+
 # Domain Intelligence APIs
 SPYONWEB_API_TOKEN = os.getenv("SPYONWEB_API_TOKEN", "")
 WHOISXML_API_KEY = os.getenv("WHOISXML_API_KEY", "")
