@@ -82,8 +82,21 @@ At each step:
 3. If it's slightly different (reworded but same intent): execute the action, note the difference.
 4. If it's completely different: report the drift and continue exploring freely.
 
-Output the same JSON format as a freeform traversal for each step, plus add:
-{{"drift": "none|minor|major", "expected": "...", "actual": "..."}}
+IMPORTANT — OUTPUT FORMAT:
+For EACH step, output a JSON object on its own line with the ACTUAL question
+and answer options visible on the page (not the baseline values). Include a
+`drift` field so we can tell how closely the live step matches the script:
+
+{{"step_number": N, "step_type": "question|info|input|pricing|discount", "question_text": "...", "answer_options": [{{"label": "...", "value": "..."}}], "action_taken": "clicked X", "url": "current URL", "drift": "none|minor|major", "expected": "baseline question text", "actual": "what you actually saw", "log": "short human-readable summary"}}
+
+The "log" field is IMPORTANT — a casual one-line human comment on what you saw
+and why you picked what you did.
+
+If you hit a PRICING page, output:
+{{"step_number": N, "step_type": "pricing", "plans": [{{"name": "...", "price": "...", "currency": "...", "period": "...", "features": ["..."]}}], "discounts": [{{"type": "...", "amount": "...", "original_price": "...", "discounted_price": "...", "conditions": "..."}}], "trial_info": {{"has_trial": true/false, "trial_days": N, "trial_price": "..."}}, "url": "current URL", "drift": "none|minor|major", "log": "..."}}
+
+After the last step, output a summary line:
+{{"summary": true, "total_steps": N, "stop_reason": "paywall|funnel_reset|end_of_funnel|max_steps"}}
 
 STOP at the same point as the baseline, or earlier if you hit a gate.
 """

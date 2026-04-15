@@ -137,20 +137,10 @@ async def run_traversal(
             _last_url[0] = url
             return
 
-        # 2. Text fallback: detect "Steps 1-N completed" / "Completed Steps 1-N".
-        # The agent writes either ordering depending on the model; scan both
-        # and take the highest N so fast progress across multiple steps is
-        # captured too.
-        completed_up_to = 0
-        for pat in (
-            r'[Cc]ompleted\s+[Ss]teps?\s+1[-\u2013\u2014]\s*(\d+)',
-            r'[Ss]teps?\s+1[-\u2013\u2014]\s*(\d+)\s+completed',
-        ):
-            for match in re.finditer(pat, memory):
-                n = int(match.group(1))
-                if n > completed_up_to:
-                    completed_up_to = n
-        if completed_up_to:
+        # 2. Text fallback: detect "Steps 1-N completed" transitions
+        m = re.search(r'[Ss]teps?\s+1[-\u2013\u2014]\s*(\d+)\s+completed', memory)
+        if m:
+            completed_up_to = int(m.group(1))
             while _last_funnel_step[0] < completed_up_to:
                 next_step = _last_funnel_step[0] + 1
 

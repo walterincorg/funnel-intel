@@ -209,10 +209,16 @@ def process_job(job: dict):
             "progress_log": progress_log,
         }
 
-        # If no baseline exists, this becomes the baseline
-        if not baseline_run:
+        # If no baseline exists, this becomes the baseline — but only if it
+        # actually captured a meaningful number of steps. A 0- or 1-step run
+        # (funnel_reset, early paywall, broken capture) shouldn't become the
+        # poison baseline for every future diff.
+        captured_steps = len(result["steps"])
+        if not baseline_run and captured_steps >= 3:
             update_data["is_baseline"] = True
-            log.info("First successful run for %s — marking as baseline", comp["name"])
+            log.info("First successful run for %s — marking as baseline (%d steps)", comp["name"], captured_steps)
+        elif not baseline_run:
+            log.warning("First run for %s captured only %d steps — NOT promoting to baseline", comp["name"], captured_steps)
 
         # Diff against baseline if one exists
         if baseline_run and baseline_steps:
