@@ -94,6 +94,15 @@ def is_simple_greeting(user_message: str) -> bool:
     return text in {"hey", "hi", "hello", "yo", "sup", "thanks", "thank you"}
 
 
+def is_simple_gmail_connect_request(user_message: str) -> bool:
+    text = user_message.strip().lower()
+    return (
+        "gmail" in text
+        and any(verb in text for verb in {"connect", "setup", "set up", "link", "authorize"})
+        and len(text) <= 90
+    )
+
+
 def resolve_model_for_preset(model_preset: str) -> str:
     model_map = {
         "basic": OPENROUTER_MODEL_BASIC,
@@ -143,6 +152,14 @@ def chat(payload: ChatRequest):
 
     if is_simple_greeting(payload.message):
         return ChatResponse(reply="Hey, how can I help?")
+
+    if is_simple_gmail_connect_request(payload.message):
+        return ChatResponse(
+            reply=(
+                "Sure - use the in-chat button below to connect Gmail via Composio. "
+                "After you approve access, I can read, search, and summarize your emails."
+            )
+        )
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     use_case_hint = get_use_case_hint(payload.message)

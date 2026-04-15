@@ -106,6 +106,26 @@ function sleep(ms: number): Promise<void> {
   })
 }
 
+type ComposioReturnContext = {
+  shouldResumeChat: boolean
+  chatId: string | null
+}
+
+function getComposioReturnContext(): ComposioReturnContext {
+  const params = new URLSearchParams(window.location.search)
+  return {
+    shouldResumeChat: params.get('composio_return') === '1',
+    chatId: params.get('composio_chat_id'),
+  }
+}
+
+function buildComposioCallbackUrl(chatId: string): string {
+  const callbackUrl = new URL(`${window.location.origin}${window.location.pathname}`)
+  callbackUrl.searchParams.set('composio_return', '1')
+  callbackUrl.searchParams.set('composio_chat_id', chatId)
+  return callbackUrl.toString()
+}
+
 const fallbackConnections: ConnectionItem[] = [
   {
     id: 'gmail',
@@ -452,6 +472,7 @@ const useCasesByTab: Record<Tab, UseCaseCard[]> = {
 }
 
 export default function App() {
+  const composioReturnContext = getComposioReturnContext()
   const [activeTab, setActiveTab] = useState<Tab>('Growth')
   const [composerText, setComposerText] = useState('')
   const [isConnectionsMenuOpen, setIsConnectionsMenuOpen] = useState(false)
@@ -463,8 +484,8 @@ export default function App() {
   const [connectingToolkitSlug, setConnectingToolkitSlug] = useState<string | null>(null)
   const [connections, setConnections] = useState<ConnectionItem[]>(fallbackConnections)
   const [chatThreads, setChatThreads] = useState<ChatThread[]>(initialThreads)
-  const [activeChatId, setActiveChatId] = useState(initialThreads[0].id)
-  const [isHomeView, setIsHomeView] = useState(true)
+  const [activeChatId, setActiveChatId] = useState(composioReturnContext.chatId ?? initialThreads[0].id)
+  const [isHomeView, setIsHomeView] = useState(!composioReturnContext.shouldResumeChat)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [chatSearch, setChatSearch] = useState('')
   const [chatError, setChatError] = useState<string | null>(null)
@@ -475,6 +496,7 @@ export default function App() {
   const [vcConnectedByCard, setVcConnectedByCard] = useState<Record<string, string[]>>({})
   const [vcAuthPendingByCard, setVcAuthPendingByCard] = useState<Record<string, string[]>>({})
   const requestAbortRef = useRef<AbortController | null>(null)
+  const connectingSlugsRef = useRef<Set<string>>(new Set())
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const activeCards = useCasesByTab[activeTab]
@@ -670,16 +692,25 @@ export default function App() {
   }
 
   async function onConnectToolkit(item: ConnectionItem, userId?: string): Promise<boolean> {
+    if (connectingSlugsRef.current.has(item.slug)) {
+      return false
+    }
+
+    connectingSlugsRef.current.add(item.slug)
     setConnectingToolkitSlug(item.slug)
     setConnectionsError(null)
     try {
       const result = await api.connectComposioToolkit(
         item.slug,
         userId ?? buildComposioUserId(),
-        window.location.href,
+        buildComposioCallbackUrl(activeChatId),
       )
       if (result.redirect_url) {
-        window.open(result.redirect_url, '_blank', 'noopener,noreferrer')
+        window.location.assign(result.redirect_url)
+        return true
+      }
+
+      if (result.already_connected || result.connected_account_id) {
         return true
       } else {
         setConnectionsError(`Connection created for ${item.name}, but no redirect URL was returned.`)
@@ -691,6 +722,7 @@ export default function App() {
       setConnectionsError(`Could not start connection for ${item.name}. ${message}`)
       return false
     } finally {
+      connectingSlugsRef.current.delete(item.slug)
       setConnectingToolkitSlug(null)
     }
   }
@@ -774,6 +806,21 @@ export default function App() {
     }
     setChatError('Tool links are connected. Next step is virtual computer provisioning.')
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const hasReturnState =
+      params.has('composio_return') || params.has('composio_chat_id')
+    if (!hasReturnState) {
+      return
+    }
+
+    params.delete('composio_return')
+    params.delete('composio_chat_id')
+    const nextSearch = params.toString()
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`
+    window.history.replaceState({}, '', nextUrl)
+  }, [])
 
   useEffect(() => {
     if (!isConnectionsModalOpen || connectionsTab !== 'Apps') {

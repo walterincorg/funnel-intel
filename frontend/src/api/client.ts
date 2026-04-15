@@ -128,6 +128,7 @@ export interface ComposioToolkit {
 export interface ComposioConnectResponse {
   redirect_url?: string
   connected_account_id?: string
+  already_connected?: boolean
 }
 
 export interface ComposioConnectionStatus {
