@@ -21,8 +21,7 @@ APIFY_ADS_ACTOR_ID = os.getenv("APIFY_ADS_ACTOR_ID", "curious_coder/facebook-ads
 AD_SCRAPE_HOUR_UTC = int(os.getenv("AD_SCRAPE_HOUR_UTC", "6"))
 AD_SCRAPE_DAYS_OF_WEEK = {int(d) for d in os.getenv("AD_SCRAPE_DAYS_OF_WEEK", "0,3").split(",")}
 
-# Domain Intelligence APIs
-SPYONWEB_API_TOKEN = os.getenv("SPYONWEB_API_TOKEN", "")
+# Domain Intelligence
 WHOISXML_API_KEY = os.getenv("WHOISXML_API_KEY", "")
 DOMAIN_INTEL_DAY_OF_WEEK = int(os.getenv("DOMAIN_INTEL_DAY_OF_WEEK", "1"))  # Tuesday
 DOMAIN_INTEL_HOUR_UTC = int(os.getenv("DOMAIN_INTEL_HOUR_UTC", "7"))

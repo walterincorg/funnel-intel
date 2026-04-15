@@ -20,6 +20,7 @@ CREATE TABLE competitors (
   name text NOT NULL,
   slug text UNIQUE NOT NULL,
   funnel_url text NOT NULL,
+  brand_keyword text,
   config jsonb,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()

@@ -38,8 +38,17 @@ def diff_runs(baseline_steps: list[dict], new_steps: list[dict],
         ))
 
     # --- Step-by-step comparison ---
-    base_map = {s["step_number"]: s for s in baseline_steps}
-    new_map = {s["step_number"]: s for s in new_steps}
+    # Coerce step_number to int: baseline comes from DB (int column) but
+    # new_steps come from parsed LLM JSON where "36" vs 36 is inconsistent,
+    # and `sorted()` over a mixed-type set raises TypeError.
+    def _key(s: dict) -> int:
+        try:
+            return int(s["step_number"])
+        except (KeyError, TypeError, ValueError):
+            return 0
+
+    base_map = {_key(s): s for s in baseline_steps}
+    new_map = {_key(s): s for s in new_steps}
     all_steps = sorted(set(base_map.keys()) | set(new_map.keys()))
 
     major_drifts = 0

@@ -1,11 +1,19 @@
-"""New domain monitoring via WhoisXML API Brand Monitor."""
+"""Brand-prefixed WHOIS monitoring via WhoisXML Brand Alert API.
+
+Reads `brand_keyword` from each competitor (falls back to first token of the
+competitor name). For every keyword we ask WhoisXML for domains registered in
+the past 7 days. WhoisXML matches substrings, so we post-filter to keep only
+domains whose root label *starts with* the keyword — the equivalent of a
+`brand.*` pattern. That eliminates noise like `enliven-living.com` for
+keyword `liven`.
+"""
 
 from __future__ import annotations
 import logging
 import os
 import re
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from backend.db import get_db
 
@@ -16,9 +24,9 @@ WHOISXML_BASE_URL = "https://brand-alert.whoisxmlapi.com/api/v2"
 
 
 def poll_new_domains() -> int:
-    """Poll WhoisXML Brand Monitor for new domain registrations matching keywords.
-
-    Returns number of new domains found.
+    """Query WhoisXML for domains registered in the past 7 days matching
+    each competitor's brand keyword. Stores matches in `discovered_domains`.
+    Returns the count of rows upserted.
     """
     if not WHOISXML_API_KEY:
         log.info("WhoisXML API key not configured, skipping domain monitoring")
@@ -26,24 +34,14 @@ def poll_new_domains() -> int:
 
     db = get_db()
 
-    # Build keyword list from competitor names.
-    # WhoisXML matches substrings against the domain label — phrases with spaces
-    # return zero. Reduce each competitor name to its first alphanumeric token
-    # (length >= 4 to avoid noise) and dedupe.
-    competitors = db.table("competitors").select("id, name").execute().data
-    seen: set[str] = set()
-    keywords: list[str] = []
-    for c in competitors:
-        name = (c.get("name") or "").lower()
-        token = next((t for t in re.findall(r"[a-z0-9]+", name) if len(t) >= 4), "")
-        if token and token not in seen:
-            seen.add(token)
-            keywords.append(token)
+    competitors = db.table("competitors").select("id, name, brand_keyword").execute().data
+    keywords = _collect_keywords(competitors)
 
     if not keywords:
         return 0
 
     new_domains = 0
+    since_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
 
     for keyword in keywords:
         try:
@@ -51,7 +49,7 @@ def poll_new_domains() -> int:
                 WHOISXML_BASE_URL,
                 json={
                     "apiKey": WHOISXML_API_KEY,
-                    "sinceDate": _days_ago(7),
+                    "sinceDate": since_date,
                     "mode": "purchase",
                     "punycode": True,
                     "searchType": "domain",
@@ -67,65 +65,69 @@ def poll_new_domains() -> int:
 
             resp.raise_for_status()
             data = resp.json()
-
-            domain_list = data.get("domainsList", [])
-            now_iso = datetime.now(timezone.utc).isoformat()
-            # Dedupe by domain — WhoisXML can return the same domain multiple
-            # times under different `action` entries, and Postgres rejects
-            # `ON CONFLICT DO UPDATE` when the same target row appears twice
-            # in one upsert batch.
-            rows_by_domain: dict[str, dict] = {}
-            for entry in domain_list:
-                d = entry.get("domainName", "").lower()
-                if not d or not _token_is_boundary_match(keyword, d):
-                    continue
-                rows_by_domain[d] = {
-                    "domain": d,
-                    "discovery_source": "whois_monitor",
-                    "discovery_reason": f"keyword match: '{keyword}'",
-                    "relevance": "medium",
-                    "last_checked_at": now_iso,
-                }
-            rows = list(rows_by_domain.values())
-
-            # Batch upserts to avoid one HTTP round-trip per domain.
-            for i in range(0, len(rows), 500):
-                chunk = rows[i : i + 500]
-                try:
-                    db.table("discovered_domains").upsert(
-                        chunk, on_conflict="domain"
-                    ).execute()
-                    new_domains += len(chunk)
-                except Exception:
-                    log.exception(
-                        "Failed to store monitored domain batch (keyword=%s size=%d)",
-                        keyword,
-                        len(chunk),
-                    )
-
-        except requests.exceptions.HTTPError:
-            log.exception("WhoisXML API error for keyword '%s'", keyword)
         except Exception:
-            log.exception("WhoisXML monitoring failed for keyword '%s'", keyword)
+            log.exception("WhoisXML request failed for keyword '%s'", keyword)
+            continue
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        rows_by_domain: dict[str, dict] = {}
+        for entry in data.get("domainsList", []):
+            d = (entry.get("domainName") or "").lower()
+            if not d or not _label_starts_with(keyword, d):
+                continue
+            rows_by_domain[d] = {
+                "domain": d,
+                "discovery_source": "whois_monitor",
+                "discovery_reason": f"brand prefix match: '{keyword}.*'",
+                "last_checked_at": now_iso,
+            }
+
+        rows = list(rows_by_domain.values())
+        for i in range(0, len(rows), 500):
+            chunk = rows[i : i + 500]
+            try:
+                db.table("discovered_domains").upsert(
+                    chunk, on_conflict="domain"
+                ).execute()
+                new_domains += len(chunk)
+            except Exception:
+                log.exception(
+                    "Failed to store monitored domain batch (keyword=%s size=%d)",
+                    keyword, len(chunk),
+                )
 
     log.info("Domain monitoring complete: %d new domains from %d keywords", new_domains, len(keywords))
     return new_domains
 
 
-def _days_ago(n: int) -> str:
-    """Return ISO date string for N days ago."""
-    from datetime import timedelta
-    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime("%Y-%m-%d")
-
-
-def _token_is_boundary_match(token: str, domain: str) -> bool:
-    """Check if `token` appears as a bounded word in `domain`.
-
-    WhoisXML returns any domain whose label contains the token as a raw substring,
-    which floods results with noise like `enliven-living.com` for token `liven`.
-    We keep a domain only if the token is flanked by a label boundary (start/end
-    of the full domain) or a non-alphanumeric separator (`-`, `.`).
+def _collect_keywords(competitors: list[dict]) -> list[str]:
+    """Prefer an explicit `brand_keyword`. Fall back to the first alphanumeric
+    token of the competitor name (length >= 4). Deduped, lowercase.
     """
-    # Match against the full domain (labels + dots). Separators are `-` and `.`.
-    pattern = rf"(?:^|[^a-z0-9]){re.escape(token)}(?:$|[^a-z0-9])"
-    return re.search(pattern, domain) is not None
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for c in competitors:
+        raw = (c.get("brand_keyword") or "").strip().lower()
+        if not raw:
+            name = (c.get("name") or "").lower()
+            raw = next((t for t in re.findall(r"[a-z0-9]+", name) if len(t) >= 4), "")
+        if raw and raw not in seen:
+            seen.add(raw)
+            keywords.append(raw)
+    return keywords
+
+
+def _label_starts_with(keyword: str, domain: str) -> bool:
+    """True if the domain's root label starts with `keyword` followed by end
+    of label (dot) or an alphanumeric continuation.
+
+    Accepts `liven.app`, `liven-plus.com`, `livenfitness.io`.
+    Rejects `enliven.com`, `myliven.app`, `meal-liven.com`.
+    """
+    root_label = domain.split(".", 1)[0]
+    if not root_label.startswith(keyword):
+        return False
+    # Accept the whole label or a continuation with alnum / `-` / `_`.
+    # We don't require a separator — `livenfitness` is a legitimate brand
+    # extension — but the label MUST start with the keyword.
+    return True

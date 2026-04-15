@@ -1,6 +1,6 @@
-"""Tests for domain fingerprint extraction regex patterns."""
+"""Tests for GA + Pixel extraction regex patterns."""
 
-from backend.worker.domain_intel import extract_tracking_codes, detect_tech_stack
+from backend.worker.domain_intel import extract_tracking_codes
 
 
 class TestExtractTrackingCodes:
@@ -30,11 +30,6 @@ class TestExtractTrackingCodes:
         codes = extract_tracking_codes(html, "https://example.com")
         assert any(c["type"] == "facebook_pixel" and c["id"] == "123456789012" for c in codes)
 
-    def test_extract_gtm_container(self):
-        html = '<script src="https://www.googletagmanager.com/gtm.js?id=GTM-ABC123"></script>'
-        codes = extract_tracking_codes(html, "https://example.com")
-        assert any(c["type"] == "gtm" and c["id"] == "GTM-ABC123" for c in codes)
-
     def test_no_tracking_codes(self):
         html = "<html><body>Hello world</body></html>"
         codes = extract_tracking_codes(html, "https://example.com")
@@ -44,13 +39,16 @@ class TestExtractTrackingCodes:
         html = """
         <script>gtag("config", "G-ABC123")</script>
         <script>fbq('init', '999888777');</script>
-        <script src="https://www.googletagmanager.com/gtm.js?id=GTM-XYZ789"></script>
         """
         codes = extract_tracking_codes(html, "https://example.com")
         types = {c["type"] for c in codes}
         assert "google_analytics" in types
         assert "facebook_pixel" in types
-        assert "gtm" in types
+
+    def test_gtm_ignored(self):
+        html = '<script src="https://www.googletagmanager.com/gtm.js?id=GTM-ABC123"></script>'
+        codes = extract_tracking_codes(html, "https://example.com")
+        assert all(c["type"] != "gtm" for c in codes)
 
     def test_deduplicates_same_code(self):
         html = """
@@ -66,33 +64,3 @@ class TestExtractTrackingCodes:
         codes = extract_tracking_codes(html, "https://example.com")
         for code in codes:
             assert len(code.get("snippet", "")) <= 200
-
-
-class TestDetectTechStack:
-    def test_shopify_cdn(self):
-        html = '<link rel="stylesheet" href="https://cdn.shopify.com/s/files/1/theme.css">'
-        assert detect_tech_stack(html) == "shopify"
-
-    def test_shopify_window(self):
-        html = "<script>window.Shopify = window.Shopify || {};</script>"
-        assert detect_tech_stack(html) == "shopify"
-
-    def test_wordpress(self):
-        html = '<link rel="stylesheet" href="/wp-content/themes/flavor/style.css">'
-        assert detect_tech_stack(html) == "wordpress"
-
-    def test_wordpress_includes(self):
-        html = '<script src="/wp-includes/js/jquery/jquery.min.js"></script>'
-        assert detect_tech_stack(html) == "wordpress"
-
-    def test_nextjs(self):
-        html = '<script id="__NEXT_DATA__" type="application/json">{}</script>'
-        assert detect_tech_stack(html) == "nextjs"
-
-    def test_nextjs_assets(self):
-        html = '<script src="/_next/static/chunks/main.js"></script>'
-        assert detect_tech_stack(html) == "nextjs"
-
-    def test_unknown_tech_stack(self):
-        html = "<html><body>Custom site</body></html>"
-        assert detect_tech_stack(html) == "custom"

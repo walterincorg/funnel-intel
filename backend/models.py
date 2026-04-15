@@ -166,16 +166,13 @@ class DomainFingerprintOut(BaseModel):
     fingerprint_value: str
     detected_at_url: str | None = None
     raw_snippet: str | None = None
-    metadata: dict | None = None
     captured_at: datetime | None = None
 
 
 class OperatorClusterOut(BaseModel):
     id: str
-    cluster_name: str | None = None
     fingerprint_type: str
     fingerprint_value: str
-    confidence: str
     detected_at: datetime | None = None
     members: list[dict] = []
 
@@ -185,22 +182,10 @@ class DiscoveredDomainOut(BaseModel):
     domain: str
     discovery_source: str
     discovery_reason: str | None = None
-    linked_fingerprint_value: str | None = None
-    whois_data: dict | None = None
     first_seen_at: datetime | None = None
     last_checked_at: datetime | None = None
     status: str = "new"
-    relevance: str = "medium"
-
-
-class DomainChangeOut(BaseModel):
-    id: str
-    competitor_id: str
-    fingerprint_type: str
-    change_type: str
-    old_value: str | None = None
-    new_value: str | None = None
-    detected_at: datetime | None = None
+    alerted_at: datetime | None = None
 
 
 class DomainIntelRunOut(BaseModel):

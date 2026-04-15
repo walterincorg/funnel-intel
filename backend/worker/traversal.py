@@ -27,9 +27,17 @@ def _parse_json_lines(text: str) -> list[dict]:
         match = re.search(r'\{.*\}', line)
         if match:
             try:
-                results.append(json.loads(match.group()))
+                obj = json.loads(match.group())
             except json.JSONDecodeError:
                 continue
+            # The LLM occasionally writes step_number as a string ("36").
+            # Downstream sorts and diffs fail on mixed int/str keys.
+            if "step_number" in obj:
+                try:
+                    obj["step_number"] = int(obj["step_number"])
+                except (TypeError, ValueError):
+                    continue
+            results.append(obj)
     return results
 
 

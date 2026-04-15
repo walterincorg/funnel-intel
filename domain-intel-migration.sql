@@ -1,28 +1,43 @@
--- Domain Intelligence — new tables for infrastructure fingerprinting + domain discovery
+-- Domain Intelligence — minimal schema.
+--
+-- Two signals only:
+--   1. Brand-prefixed WHOIS monitoring          -> discovered_domains
+--   2. Google Analytics + Facebook Pixel match  -> domain_fingerprints + operator_clusters
+--
+-- Everything else (GTM, hosting, tech stack, reverse lookups, change log) is gone.
+-- ⚠️ DESTRUCTIVE on existing installs: drops removed tables and recreates.
 
--- === DOMAIN FINGERPRINTS (tracking codes + tech stack per competitor) ===
+DROP TABLE IF EXISTS domain_changes CASCADE;
+DROP TABLE IF EXISTS domain_competitor_links CASCADE;
+DROP TABLE IF EXISTS cluster_members CASCADE;
+DROP TABLE IF EXISTS operator_clusters CASCADE;
+DROP TABLE IF EXISTS discovered_domains CASCADE;
+DROP TABLE IF EXISTS domain_fingerprints CASCADE;
+DROP TABLE IF EXISTS domain_intel_runs CASCADE;
+
+-- Idempotent: competitor brand keyword (exact match for WHOIS prefix search)
+ALTER TABLE competitors ADD COLUMN IF NOT EXISTS brand_keyword text;
+
+-- === DOMAIN FINGERPRINTS (GA + Pixel only) ===
 CREATE TABLE domain_fingerprints (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   competitor_id uuid NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
   domain text NOT NULL,
-  fingerprint_type text NOT NULL,  -- 'google_analytics', 'facebook_pixel', 'gtm', 'hosting', 'tech_stack'
+  fingerprint_type text NOT NULL CHECK (fingerprint_type IN ('google_analytics', 'facebook_pixel')),
   fingerprint_value text NOT NULL,
   detected_at_url text,
   raw_snippet text,
-  metadata jsonb,
   captured_at timestamptz DEFAULT now(),
   UNIQUE(competitor_id, fingerprint_type, fingerprint_value)
 );
 CREATE INDEX idx_fingerprints_value ON domain_fingerprints(fingerprint_value);
 CREATE INDEX idx_fingerprints_competitor ON domain_fingerprints(competitor_id);
 
--- === OPERATOR CLUSTERS (groups of competitors sharing tracking codes) ===
+-- === OPERATOR CLUSTERS (competitors sharing a GA or Pixel code) ===
 CREATE TABLE operator_clusters (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  cluster_name text,
-  fingerprint_type text NOT NULL,
+  fingerprint_type text NOT NULL CHECK (fingerprint_type IN ('google_analytics', 'facebook_pixel')),
   fingerprint_value text NOT NULL,
-  confidence text NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
   detected_at timestamptz DEFAULT now(),
   UNIQUE(fingerprint_type, fingerprint_value)
 );
@@ -34,44 +49,20 @@ CREATE TABLE cluster_members (
   PRIMARY KEY (cluster_id, competitor_id)
 );
 
--- === DISCOVERED DOMAINS (from reverse lookups + WHOIS monitoring) ===
+-- === DISCOVERED DOMAINS (WHOIS brand-prefix matches) ===
 CREATE TABLE discovered_domains (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   domain text NOT NULL UNIQUE,
-  discovery_source text NOT NULL,       -- 'reverse_lookup', 'whois_monitor', 'keyword_match'
-  discovery_reason text,                -- e.g., 'shares GA ID G-BM7X92K1 with BetterMe'
-  linked_fingerprint_value text,
-  whois_data jsonb,
+  discovery_source text NOT NULL DEFAULT 'whois_monitor',
+  discovery_reason text,
   first_seen_at timestamptz DEFAULT now(),
   last_checked_at timestamptz,
-  status text DEFAULT 'new',            -- 'new', 'reviewed', 'added_to_tracking', 'dismissed'
-  relevance text DEFAULT 'medium',      -- 'high', 'medium', 'low'
-  CONSTRAINT valid_status CHECK (status IN ('new', 'reviewed', 'added_to_tracking', 'dismissed')),
-  CONSTRAINT valid_relevance CHECK (relevance IN ('high', 'medium', 'low'))
+  status text NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'reviewed', 'added_to_tracking', 'dismissed')),
+  alerted_at timestamptz
 );
-CREATE INDEX idx_discovered_linked_fingerprint ON discovered_domains(linked_fingerprint_value);
+CREATE INDEX idx_discovered_domains_alerted ON discovered_domains(alerted_at);
 
-CREATE TABLE domain_competitor_links (
-  domain_id uuid REFERENCES discovered_domains(id) ON DELETE CASCADE,
-  competitor_id uuid REFERENCES competitors(id) ON DELETE CASCADE,
-  link_reason text,  -- 'shared_ga', 'shared_pixel', 'whois_match'
-  PRIMARY KEY (domain_id, competitor_id)
-);
-
--- === DOMAIN CHANGES (fingerprint change log) ===
-CREATE TABLE domain_changes (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  competitor_id uuid NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
-  fingerprint_type text NOT NULL,
-  change_type text NOT NULL,  -- 'code_added', 'code_removed', 'hosting_changed', 'tech_changed'
-  old_value text,
-  new_value text,
-  detected_at timestamptz DEFAULT now()
-);
-CREATE INDEX idx_domain_changes_competitor ON domain_changes(competitor_id);
-CREATE INDEX idx_domain_changes_date ON domain_changes(detected_at DESC);
-
--- === DOMAIN INTEL RUNS (observability per extraction cycle) ===
+-- === DOMAIN INTEL RUNS (observability) ===
 CREATE TABLE domain_intel_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   status text NOT NULL DEFAULT 'pending',

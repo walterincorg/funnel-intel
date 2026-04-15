@@ -1,6 +1,6 @@
 """Domain Intelligence API endpoints."""
 
-from datetime import date, timedelta, datetime, timezone
+from datetime import date, timedelta
 
 from fastapi import APIRouter
 from backend.db import get_db
@@ -8,7 +8,6 @@ from backend.models import (
     DomainFingerprintOut,
     OperatorClusterOut,
     DiscoveredDomainOut,
-    DomainChangeOut,
     DomainIntelRunOut,
 )
 
@@ -17,7 +16,7 @@ router = APIRouter(prefix="/api/domains", tags=["domains"])
 
 @router.get("/fingerprints", response_model=list[DomainFingerprintOut])
 def list_fingerprints(competitor_id: str | None = None, shared_only: bool = False):
-    """Get fingerprints, optionally filtered to shared-only or by competitor."""
+    """Get GA/Pixel fingerprints, optionally filtered to shared-only or by competitor."""
     db = get_db()
     q = db.table("domain_fingerprints").select("*").order("captured_at", desc=True)
 
@@ -27,7 +26,6 @@ def list_fingerprints(competitor_id: str | None = None, shared_only: bool = Fals
     rows = q.execute().data
 
     if shared_only:
-        # Count occurrences of each fingerprint_value
         value_counts: dict[str, int] = {}
         for row in rows:
             val = row["fingerprint_value"]
@@ -38,20 +36,18 @@ def list_fingerprints(competitor_id: str | None = None, shared_only: bool = Fals
 
 
 @router.get("/clusters", response_model=list[OperatorClusterOut])
-def list_clusters(min_confidence: str | None = None):
+def list_clusters():
     """Get operator clusters with their member competitors."""
     db = get_db()
 
-    q = db.table("operator_clusters").select("*").order("detected_at", desc=True)
-    if min_confidence:
-        # Filter by confidence level
-        levels = {"high": ["high"], "medium": ["high", "medium"], "low": ["high", "medium", "low"]}
-        allowed = levels.get(min_confidence, ["high", "medium"])
-        q = q.in_("confidence", allowed)
+    clusters = (
+        db.table("operator_clusters")
+        .select("*")
+        .order("detected_at", desc=True)
+        .execute()
+        .data
+    )
 
-    clusters = q.execute().data
-
-    # Hydrate with members
     for cluster in clusters:
         members = (
             db.table("cluster_members")
@@ -60,7 +56,6 @@ def list_clusters(min_confidence: str | None = None):
             .execute()
             .data
         )
-        # Get competitor names
         comp_ids = [m["competitor_id"] for m in members]
         if comp_ids:
             comps = (
@@ -80,11 +75,10 @@ def list_clusters(min_confidence: str | None = None):
 @router.get("/discovered", response_model=list[DiscoveredDomainOut])
 def list_discovered(
     days: int = 30,
-    min_relevance: str = "medium",
     status: str | None = None,
     limit: int = 100,
 ):
-    """Get discovered domains, filtered by recency and relevance."""
+    """Get WHOIS-discovered domains, filtered by recency."""
     since = (date.today() - timedelta(days=days)).isoformat()
     db = get_db()
 
@@ -98,32 +92,6 @@ def list_discovered(
 
     if status:
         q = q.eq("status", status)
-
-    rows = q.execute().data
-
-    # Filter by relevance level
-    relevance_levels = {"high": ["high"], "medium": ["high", "medium"], "low": ["high", "medium", "low"]}
-    allowed = relevance_levels.get(min_relevance, ["high", "medium"])
-    rows = [r for r in rows if r.get("relevance", "medium") in allowed]
-
-    return rows
-
-
-@router.get("/changes", response_model=list[DomainChangeOut])
-def list_changes(competitor_id: str | None = None, days: int = 30, limit: int = 100):
-    """Get fingerprint change log."""
-    since = (date.today() - timedelta(days=days)).isoformat()
-    db = get_db()
-
-    q = (
-        db.table("domain_changes")
-        .select("*")
-        .gte("detected_at", since)
-        .order("detected_at", desc=True)
-        .limit(limit)
-    )
-    if competitor_id:
-        q = q.eq("competitor_id", competitor_id)
 
     return q.execute().data
 
@@ -144,7 +112,7 @@ def list_runs(limit: int = 20):
 
 @router.get("/stats")
 def domain_stats():
-    """Get summary stats for the Domain Intel dashboard."""
+    """Summary stats for the Domain Intel dashboard."""
     db = get_db()
 
     competitors_count = len(db.table("competitors").select("id").execute().data)
@@ -155,12 +123,10 @@ def domain_stats():
         db.table("discovered_domains")
         .select("id")
         .gte("first_seen_at", week_ago)
-        .in_("relevance", ["high", "medium"])
         .execute()
         .data
     )
 
-    # Count unique shared fingerprint values
     fingerprints = db.table("domain_fingerprints").select("fingerprint_value").execute().data
     value_counts: dict[str, int] = {}
     for fp in fingerprints:
@@ -177,11 +143,10 @@ def domain_stats():
 
 
 @router.post("/scan", status_code=202)
-def trigger_scan(body: dict | None = None):
+def trigger_scan():
     """Trigger a domain intel extraction run."""
     db = get_db()
 
-    # Cancel any stale pending/running runs
     db.table("domain_intel_runs").update({"status": "cancelled"}).in_(
         "status", ["pending", "running"]
     ).execute()

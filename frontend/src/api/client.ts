@@ -184,7 +184,7 @@ export interface DomainFingerprint {
   id: string
   competitor_id: string
   domain: string
-  fingerprint_type: string
+  fingerprint_type: 'google_analytics' | 'facebook_pixel'
   fingerprint_value: string
   detected_at_url: string | null
   raw_snippet: string | null
@@ -193,10 +193,8 @@ export interface DomainFingerprint {
 
 export interface OperatorCluster {
   id: string
-  cluster_name: string | null
-  fingerprint_type: string
+  fingerprint_type: 'google_analytics' | 'facebook_pixel'
   fingerprint_value: string
-  confidence: string
   detected_at: string
   members: { id: string; name: string; slug: string }[]
 }
@@ -206,21 +204,10 @@ export interface DiscoveredDomain {
   domain: string
   discovery_source: string
   discovery_reason: string | null
-  linked_fingerprint_value: string | null
   first_seen_at: string
   last_checked_at: string | null
   status: string
-  relevance: string
-}
-
-export interface DomainChange {
-  id: string
-  competitor_id: string
-  fingerprint_type: string
-  change_type: string
-  old_value: string | null
-  new_value: string | null
-  detected_at: string
+  alerted_at: string | null
 }
 
 export interface DomainIntelRun {
@@ -318,19 +305,11 @@ export const api = {
     if (params?.shared_only) qs.set('shared_only', 'true')
     return request<DomainFingerprint[]>(`/domains/fingerprints?${qs}`)
   },
-  listClusters: (minConfidence?: string) =>
-    request<OperatorCluster[]>(minConfidence ? `/domains/clusters?min_confidence=${minConfidence}` : '/domains/clusters'),
-  listDiscoveredDomains: (params?: { days?: number; min_relevance?: string }) => {
+  listClusters: () => request<OperatorCluster[]>('/domains/clusters'),
+  listDiscoveredDomains: (params?: { days?: number }) => {
     const qs = new URLSearchParams()
     if (params?.days) qs.set('days', String(params.days))
-    if (params?.min_relevance) qs.set('min_relevance', params.min_relevance)
     return request<DiscoveredDomain[]>(`/domains/discovered?${qs}`)
-  },
-  listDomainChanges: (params?: { competitor_id?: string; days?: number }) => {
-    const qs = new URLSearchParams()
-    if (params?.competitor_id) qs.set('competitor_id', params.competitor_id)
-    if (params?.days) qs.set('days', String(params.days))
-    return request<DomainChange[]>(`/domains/changes?${qs}`)
   },
   domainRuns: () => request<DomainIntelRun[]>('/domains/runs'),
   triggerDomainScan: () =>
