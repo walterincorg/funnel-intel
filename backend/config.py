@@ -34,6 +34,14 @@ FRESHNESS_STALE_HOURS = int(os.getenv("FRESHNESS_STALE_HOURS", "48"))
 # prompt or a bad max_tokens value.
 SYNTHESIS_COST_CAP_USD = float(os.getenv("SYNTHESIS_COST_CAP_USD", "10.0"))
 
+# Synthesis schedule — weekly, default Monday 07:00 UTC. Runs after the
+# Monday ad scrape (hour 6 default) so the ship list sees the freshest ads.
+# Day-of-week follows Python convention: Monday=0, Sunday=6.
+SYNTHESIS_DAY_OF_WEEK = int(os.getenv("SYNTHESIS_DAY_OF_WEEK", "0"))
+SYNTHESIS_HOUR_UTC = int(os.getenv("SYNTHESIS_HOUR_UTC", "7"))
+# How many back-to-back failures in one calendar day before we stop retrying.
+SYNTHESIS_MAX_FAILURES_PER_DAY = int(os.getenv("SYNTHESIS_MAX_FAILURES_PER_DAY", "3"))
+
 # Domain Intelligence APIs
 SPYONWEB_API_TOKEN = os.getenv("SPYONWEB_API_TOKEN", "")
 WHOISXML_API_KEY = os.getenv("WHOISXML_API_KEY", "")

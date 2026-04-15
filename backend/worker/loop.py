@@ -11,6 +11,7 @@ from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
 from backend.worker.ad_loop import maybe_run_ad_scrape
 from backend.worker.domain_intel_loop import maybe_run_domain_intel
+from backend.worker.synthesis_loop import maybe_run_synthesis, cleanup_stale_synthesis_runs
 from backend.worker import freshness
 
 log = logging.getLogger(__name__)
@@ -44,8 +45,12 @@ def cleanup_stale_jobs():
     n_runs = len(stale_runs.data) if stale_runs.data else 0
     n_jobs = len(stale_jobs.data) if stale_jobs.data else 0
     n_scrapes = len(stale_scrapes.data) if stale_scrapes.data else 0
-    if n_runs or n_jobs or n_scrapes:
-        log.warning("Cleaned up %d stale runs, %d stale jobs, %d stale ad scrapes from previous worker", n_runs, n_jobs, n_scrapes)
+    n_synth = cleanup_stale_synthesis_runs()
+    if n_runs or n_jobs or n_scrapes or n_synth:
+        log.warning(
+            "Cleaned up %d stale runs, %d stale jobs, %d stale ad scrapes, %d stale synthesis runs from previous worker",
+            n_runs, n_jobs, n_scrapes, n_synth,
+        )
 
 
 def pick_job() -> dict | None:
@@ -262,6 +267,10 @@ def main():
                     maybe_run_domain_intel()
                 except Exception:
                     log.exception("Domain intel check failed")
+                try:
+                    maybe_run_synthesis()
+                except Exception:
+                    log.exception("Synthesis check failed")
             time.sleep(POLL_INTERVAL)
     log.info("Worker stopped")
 
