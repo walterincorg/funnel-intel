@@ -90,16 +90,6 @@ function CompetitorCard({ competitor, latestScan, onScan, jobStatus }: {
             <span>{latestScan.total_steps ?? 0} steps</span>
             <span>{formatDate(latestScan.completed_at ?? latestScan.started_at)}</span>
           </div>
-          {latestScan.drift_details && latestScan.drift_details.length > 0 && (
-            <div className="mt-2 p-2 bg-bg/50 rounded-lg text-xs space-y-1">
-              {latestScan.drift_details.slice(0, 3).map((d, i) => (
-                <p key={i} className="text-text/80">{d.description}</p>
-              ))}
-              {latestScan.drift_details.length > 3 && (
-                <p className="text-text/50">+{latestScan.drift_details.length - 3} more changes</p>
-              )}
-            </div>
-          )}
           <button
             onClick={() => navigate(`/scans/${latestScan.id}`)}
             className="flex items-center gap-1 text-xs text-accent hover:underline mt-1 min-h-[44px] py-2"
