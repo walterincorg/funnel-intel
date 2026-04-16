@@ -11,12 +11,12 @@ from datetime import date, timedelta
 
 import anthropic
 
+from backend.config import ANTHROPIC_API_KEY
 from backend.db import get_db
 from backend.worker.ad_signals import _days_active
 
 log = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANALYSIS_MODEL = os.getenv("AD_ANALYSIS_MODEL", "claude-sonnet-4-20250514")
 
 BRIEFING_TOOL = {
