@@ -154,6 +154,16 @@ Migrate from local browser-use to Browser Use Cloud. Currently the browser-use a
 - Whether the cloud version supports the same LLM-driven agent interface
 - Impact on fingerprint extraction in `domain_intel.py` (currently uses HTTP, but browser fallback would use cloud)
 
+## Ad Snapshots: Surface or Drop
+
+Ad snapshots (daily records of each ad's state) accumulate in `ad_snapshots` but aren't surfaced anywhere. The `AdDetailModal` only shows the latest snapshot — no history, no diff, no timeline. The `copy_change` signal exists in detection code but doesn't trigger Telegram alerts (only `proven_winner` and `count_spike` do). CEO briefing ignores snapshot history entirely.
+
+**Options:**
+1. **Surface them:** Add copy change alerts to Telegram, show a snapshot timeline/diff in the ad detail modal, mention creative changes in the CEO briefing
+2. **Drop them:** Just update the ad row on each scrape, delete `ad_snapshots` table — simpler, less storage
+
+**Why it matters:** Snapshots are the only way to detect competitor copy changes, creative swaps, and CTA updates over time. But if nobody sees them, they're just wasting storage.
+
 ## Test Coverage for Ad Pipeline
 
 Zero test files exist in this project. The ad pipeline was rewritten (batch upserts, disappearance-based failed_test, LLM analysis) without tests. Priority test files:
