@@ -1,85 +1,73 @@
 import { useQuery } from '@tanstack/react-query'
 import { api, type PricingSnapshot, type Competitor } from '@/api/client'
 import { formatDate } from '@/lib/utils'
-import { DollarSign, Tag, Clock, AlertTriangle } from 'lucide-react'
+import { Tag, Clock, AlertTriangle } from 'lucide-react'
 
 function PricingCard({ snapshot, competitor }: { snapshot: PricingSnapshot; competitor: Competitor | undefined }) {
   return (
-    <div className="bg-bg-card rounded-xl border border-border p-5">
-      <div className="flex items-start justify-between mb-4">
+    <div className="bg-bg-card rounded-xl border border-border overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
         <div>
           <h3 className="text-text-bright font-medium">{competitor?.name ?? 'Unknown'}</h3>
           <p className="text-xs text-text/50 mt-0.5">{formatDate(snapshot.created_at)}</p>
         </div>
         {snapshot.captured_at_step && (
-          <span className="text-xs text-text/40">Step {snapshot.captured_at_step}</span>
+          <span className="text-xs text-text/40 bg-bg-hover px-2 py-1 rounded">Step {snapshot.captured_at_step}</span>
         )}
       </div>
 
-      {/* Plans */}
+      {/* Plans table */}
       {snapshot.plans && snapshot.plans.length > 0 ? (
-        <div className="space-y-2 mb-4">
-          <p className="text-xs text-text/60 uppercase tracking-wide flex items-center gap-1">
-            <DollarSign size={12} /> Plans
-          </p>
-          <div className="grid gap-2">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-text/50 uppercase tracking-wide border-b border-border/30">
+              <th className="text-left px-5 py-2.5 font-medium">Plan</th>
+              <th className="text-right px-5 py-2.5 font-medium">Price</th>
+              <th className="text-right px-5 py-2.5 font-medium">Period</th>
+              <th className="text-right px-5 py-2.5 font-medium">Features</th>
+            </tr>
+          </thead>
+          <tbody>
             {snapshot.plans.map((plan, i) => (
-              <div key={i} className="bg-bg/50 rounded-lg p-3 border border-border/50">
-                <div className="flex items-baseline justify-between">
-                  <span className="text-sm text-text-bright font-medium">{plan.name}</span>
-                  <span className="text-lg font-semibold text-accent">
-                    {plan.price} <span className="text-xs text-text/50">{plan.currency}/{plan.period}</span>
-                  </span>
-                </div>
-                {plan.features && plan.features.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {plan.features.map((f, j) => (
-                      <span key={j} className="text-xs text-text/50 bg-bg-hover px-2 py-0.5 rounded">{f}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <tr key={i} className="border-b border-border/20 last:border-0 hover:bg-bg-hover/50 transition-colors">
+                <td className="px-5 py-3 text-text-bright font-medium">{plan.name}</td>
+                <td className="px-5 py-3 text-right font-semibold text-accent">
+                  {plan.price} <span className="text-text/40 font-normal">{plan.currency}</span>
+                </td>
+                <td className="px-5 py-3 text-right text-text/60">{plan.period}</td>
+                <td className="px-5 py-3 text-right text-text/50">
+                  {plan.features?.length ?? 0}
+                </td>
+              </tr>
             ))}
-          </div>
-        </div>
+          </tbody>
+        </table>
       ) : (
-        <p className="text-sm text-text/40 italic mb-4">No pricing plans captured</p>
+        <p className="px-5 py-4 text-sm text-text/40 italic">No pricing plans captured</p>
       )}
 
-      {/* Discounts */}
-      {snapshot.discounts && snapshot.discounts.length > 0 && (
-        <div className="space-y-2 mb-4">
-          <p className="text-xs text-text/60 uppercase tracking-wide flex items-center gap-1">
-            <Tag size={12} /> Discounts
-          </p>
-          {snapshot.discounts.map((d, i) => (
-            <div key={i} className="bg-warning/5 border border-warning/20 rounded-lg p-3">
-              <div className="flex items-baseline justify-between">
-                <span className="text-sm text-warning font-medium">{d.type} — {d.amount}</span>
-              </div>
+      {/* Discounts & Trial — compact footer */}
+      {((snapshot.discounts && snapshot.discounts.length > 0) || (snapshot.trial_info?.has_trial)) && (
+        <div className="px-5 py-3 border-t border-border/30 flex flex-wrap gap-3">
+          {snapshot.discounts?.map((d, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 text-xs text-warning bg-warning/5 border border-warning/15 px-2.5 py-1 rounded-full">
+              <Tag size={11} />
+              {d.type} — {d.amount}
               {d.original_price && d.discounted_price && (
-                <p className="text-xs text-text/60 mt-1">
+                <span className="text-text/50 ml-1">
                   <span className="line-through">{d.original_price}</span> → <span className="text-success">{d.discounted_price}</span>
-                </p>
+                </span>
               )}
-              {d.conditions && (
-                <p className="text-xs text-text/40 mt-1">{d.conditions}</p>
-              )}
-            </div>
+            </span>
           ))}
-        </div>
-      )}
-
-      {/* Trial */}
-      {snapshot.trial_info && snapshot.trial_info.has_trial && (
-        <div className="bg-info/5 border border-info/20 rounded-lg p-3">
-          <p className="text-xs text-info font-medium flex items-center gap-1">
-            <Clock size={12} /> Free Trial
-          </p>
-          <p className="text-sm text-text-bright mt-1">
-            {snapshot.trial_info.trial_days} days
-            {snapshot.trial_info.trial_price && ` — then ${snapshot.trial_info.trial_price}`}
-          </p>
+          {snapshot.trial_info?.has_trial && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-info bg-info/5 border border-info/15 px-2.5 py-1 rounded-full">
+              <Clock size={11} />
+              {snapshot.trial_info.trial_days}-day trial
+              {snapshot.trial_info.trial_price && ` → ${snapshot.trial_info.trial_price}`}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -142,7 +130,7 @@ export function Pricing() {
       </div>
 
       {snapshots && snapshots.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="space-y-4">
           {snapshots.map(s => (
             <PricingCard key={s.id} snapshot={s} competitor={compMap.get(s.competitor_id)} />
           ))}
@@ -160,16 +148,27 @@ export function Pricing() {
             <AlertTriangle size={18} className="text-warning" />
             Missing pricing ({missingPricing.length})
           </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {missingPricing.map(m => (
-              <div key={m.competitor!.id} className="bg-bg-card rounded-xl border border-warning/20 p-4">
-                <h3 className="text-text-bright font-medium">{m.competitor!.name}</h3>
-                <p className="text-xs text-warning/80 mt-1">{stopReasonLabel(m.stop_reason)}</p>
-                {m.completed_at && (
-                  <p className="text-xs text-text/40 mt-1">Last scan: {formatDate(m.completed_at)}</p>
-                )}
-              </div>
-            ))}
+          <div className="bg-bg-card rounded-xl border border-warning/20 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-text/50 uppercase tracking-wide border-b border-border/30">
+                  <th className="text-left px-5 py-2.5 font-medium">Competitor</th>
+                  <th className="text-left px-5 py-2.5 font-medium">Reason</th>
+                  <th className="text-right px-5 py-2.5 font-medium">Last Scan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missingPricing.map(m => (
+                  <tr key={m.competitor!.id} className="border-b border-border/20 last:border-0">
+                    <td className="px-5 py-3 text-text-bright font-medium">{m.competitor!.name}</td>
+                    <td className="px-5 py-3 text-warning/80 text-xs">{stopReasonLabel(m.stop_reason)}</td>
+                    <td className="px-5 py-3 text-right text-text/40 text-xs">
+                      {m.completed_at ? formatDate(m.completed_at) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
