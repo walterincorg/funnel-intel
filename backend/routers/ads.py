@@ -89,8 +89,8 @@ def list_winners(limit: int = 10, period: str = "all-time"):
         db.table("ads")
         .select("id, meta_ad_id, competitor_id, media_type, landing_page_url, status")
         .eq("status", "ACTIVE")
-        .order("last_seen_at", desc=True)
-        .limit(200)
+        .order("first_seen_at", desc=False)
+        .limit(1000)
         .execute()
         .data
     )
