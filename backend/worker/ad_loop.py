@@ -47,39 +47,8 @@ def maybe_run_ad_scrape():
         _run_ad_scrape(today)
         return
 
-    # Check day-of-week schedule
-    if today.weekday() not in AD_SCRAPE_DAYS_OF_WEEK:
-        return
-
-    # Otherwise check scheduled time
-    if now.hour < AD_SCRAPE_HOUR_UTC:
-        return
-
-    # Check if already ran today (completed or running)
-    existing = (
-        db.table("ad_scrape_runs")
-        .select("id, status")
-        .gte("created_at", today.isoformat())
-        .in_("status", ["running", "completed"])
-        .limit(1)
-        .execute()
-    )
-    if existing.data:
-        return
-
-    # Stop retrying after 3 failures today (prevents infinite loop on persistent errors)
-    failed_today = (
-        db.table("ad_scrape_runs")
-        .select("id")
-        .gte("created_at", today.isoformat())
-        .eq("status", "failed")
-        .execute()
-    )
-    if len(failed_today.data) >= 3:
-        return
-
-    log.info("Starting daily ad scrape for %s", today)
-    _run_ad_scrape(today)
+    # Auto-schedule disabled — only scrape when manually triggered via "Scrape Now"
+    return
 
 
 def _run_ad_scrape(today: date):

@@ -137,9 +137,11 @@ def normalize_ad(raw: dict) -> dict:
     # Platforms from publisher_platforms
     platforms = snap.get("publisher_platforms") or raw.get("publisher_platforms") or []
 
-    # Status — check if there's an end date or is_active flag
+    # Status — an ad with a stop_date is always inactive
     is_active = raw.get("is_active")
-    if is_active is True or (not stop_date and not raw.get("is_inactive")):
+    if stop_date:
+        status = "INACTIVE"
+    elif is_active is True or (not raw.get("is_inactive")):
         status = "ACTIVE"
     else:
         status = "INACTIVE"

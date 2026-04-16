@@ -93,14 +93,14 @@ def list_winners(limit: int = 10):
     if not ads:
         return []
 
-    # Get latest snapshot per ad for headline, body, image, start_date
+    # Get latest snapshot per ad for headline, body, image, start_date, stop_date
     ad_ids = [a["id"] for a in ads]
     all_snaps = []
     for i in range(0, len(ad_ids), 50):
         batch = ad_ids[i:i + 50]
         batch_res = (
             db.table("ad_snapshots")
-            .select("ad_id, headline, body_text, image_url, video_url, start_date, cta")
+            .select("ad_id, headline, body_text, image_url, video_url, start_date, stop_date, cta")
             .in_("ad_id", batch)
             .order("captured_date", desc=True)
             .execute()
@@ -123,6 +123,9 @@ def list_winners(limit: int = 10):
         snap = latest_snaps.get(ad["id"], {})
         start = snap.get("start_date")
         if not start:
+            continue
+        # Skip ads that have ended
+        if snap.get("stop_date"):
             continue
         try:
             days = (today - date.fromisoformat(str(start)[:10])).days
