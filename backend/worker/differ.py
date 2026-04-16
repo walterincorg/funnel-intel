@@ -43,6 +43,7 @@ class DiffResult:
     pricing_changed: bool = False
     pricing_summary: str = ""
     alert_worthy_changes: list[str] = field(default_factory=list)
+    summary: str = ""
 
     @property
     def has_changes(self) -> bool:
@@ -190,9 +191,17 @@ EVAL_TOOL = {
                     "Use final_severity='none' to suppress false positives."
                 ),
             },
+            "summary": {
+                "type": "string",
+                "description": (
+                    "2-3 sentence summary of what changed, written for a product manager. "
+                    "Focus on what matters: new questions, removed questions, pricing changes. "
+                    "If nothing meaningful changed, say so briefly. Do not list every change."
+                ),
+            },
         },
         "required": ["drift_level", "pricing_changed", "pricing_summary",
-                      "alert_worthy_changes", "changes"],
+                      "alert_worthy_changes", "changes", "summary"],
     },
 }
 
@@ -235,6 +244,9 @@ def _build_eval_prompt(
         "   - 'high': only for genuine pricing changes or genuinely new questions\n"
         "   - 'low': for everything else (cosmetic, rewords, A/B tests, reordering)\n"
         "   - 'none': if on reflection this is not a real change at all\n\n"
+        "6. **summary**: 2-3 sentence summary of what changed, written for a product manager. "
+        "Focus on what matters: new questions, removed questions, pricing changes. "
+        "If nothing meaningful changed, say so briefly.\n\n"
         "Use the save_evaluation tool."
     )
 
@@ -393,6 +405,7 @@ def diff_runs(baseline_steps: list[dict], new_steps: list[dict],
     result.pricing_changed = evaluation.get("pricing_changed", False)
     result.pricing_summary = evaluation.get("pricing_summary", "")
     result.alert_worthy_changes = evaluation.get("alert_worthy_changes", [])
+    result.summary = evaluation.get("summary", "")
 
     for change in evaluation.get("changes", []):
         sev = change.get("final_severity", "low")

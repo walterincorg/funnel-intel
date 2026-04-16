@@ -1,8 +1,19 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, MessageSquare, CreditCard, FormInput, Info, Tag, ScrollText } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, MessageSquare, CreditCard, FormInput, Info, Tag, ScrollText } from 'lucide-react'
 import { api, type ScanStep, type ProgressLogEntry } from '@/api/client'
 import { cn, formatDate } from '@/lib/utils'
+
+function StepIcon({ type }: { type: string }) {
+  switch (type) {
+    case 'question': return <MessageSquare size={14} className="text-accent" />
+    case 'pricing': return <CreditCard size={14} className="text-success" />
+    case 'discount': return <Tag size={14} className="text-warning" />
+    case 'input': return <FormInput size={14} className="text-info" />
+    default: return <Info size={14} className="text-text/50" />
+  }
+}
 
 function LogTypeIcon({ type }: { type: string }) {
   switch (type) {
@@ -14,93 +25,62 @@ function LogTypeIcon({ type }: { type: string }) {
   }
 }
 
-function ProgressLog({ entries }: { entries: ProgressLogEntry[] }) {
-  if (!entries.length) return null
-  return (
-    <div className="bg-bg-card rounded-xl border border-border p-5 mb-6">
-      <div className="flex items-center gap-2 mb-3">
-        <ScrollText size={16} className="text-accent" />
-        <h2 className="text-sm font-semibold text-text-bright">Progress Log</h2>
-        <span className="text-xs text-text/40">{entries.length} events</span>
-      </div>
-      <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
-        {entries.map((entry, i) => (
-          <div key={i} className="flex gap-2.5 text-sm leading-relaxed">
-            <span className="shrink-0 w-8 text-right text-xs text-text/30 pt-0.5 font-mono">
-              {entry.step}
-            </span>
-            <span className="shrink-0 w-4 text-center text-xs pt-0.5 font-medium">
-              <LogTypeIcon type={entry.type} />
-            </span>
-            <span className="text-text/80">{entry.message}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+function StepRow({ step }: { step: ScanStep }) {
+  const [expanded, setExpanded] = useState(false)
 
-function StepIcon({ type }: { type: string }) {
-  switch (type) {
-    case 'question': return <MessageSquare size={16} className="text-accent" />
-    case 'pricing': return <CreditCard size={16} className="text-success" />
-    case 'discount': return <Tag size={16} className="text-warning" />
-    case 'input': return <FormInput size={16} className="text-info" />
-    default: return <Info size={16} className="text-text/50" />
-  }
-}
-
-function StepCard({ step }: { step: ScanStep }) {
   return (
-    <div className="flex gap-4">
-      {/* Timeline line */}
-      <div className="flex flex-col items-center">
-        <div className="w-8 h-8 rounded-full bg-bg-card border border-border flex items-center justify-center text-xs font-medium text-text/60 shrink-0">
+    <div className="border-b border-border last:border-b-0">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-bg-hover/50 transition-colors"
+      >
+        <span className="shrink-0 w-7 text-center text-xs font-mono text-text/40">
           {step.step_number}
-        </div>
-        <div className="w-px flex-1 bg-border" />
-      </div>
-
-      {/* Step content */}
-      <div className="bg-bg-card rounded-lg border border-border p-4 mb-3 flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-2">
+        </span>
+        <span className="shrink-0">
           <StepIcon type={step.step_type} />
-          <span className="text-xs px-2 py-0.5 rounded-full bg-bg-hover text-text/70 font-medium uppercase">
-            {step.step_type}
+        </span>
+        <span className="text-sm text-text-bright truncate flex-1 min-w-0">
+          {step.question_text || <span className="text-text/40 italic">{step.step_type} screen</span>}
+        </span>
+        {step.action_taken && (
+          <span className="shrink-0 text-xs text-accent/70 max-w-[200px] truncate hidden sm:block">
+            {step.action_taken}
           </span>
+        )}
+        <ChevronRight size={14} className={cn(
+          'shrink-0 text-text/30 transition-transform',
+          expanded && 'rotate-90'
+        )} />
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-3 pl-14 space-y-2">
+          {step.answer_options && step.answer_options.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {step.answer_options.map((opt, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'text-xs px-2 py-0.5 rounded-full border',
+                    step.action_taken?.includes(opt.label)
+                      ? 'border-accent bg-accent-dim text-accent'
+                      : 'border-border text-text/60'
+                  )}
+                >
+                  {opt.label}
+                </span>
+              ))}
+            </div>
+          )}
+          {step.action_taken && (
+            <p className="text-xs text-accent/80">Action: {step.action_taken}</p>
+          )}
           {step.url && (
-            <span className="text-xs text-text/40 truncate ml-auto max-w-[200px]">{step.url}</span>
+            <p className="text-xs text-text/40 truncate">{step.url}</p>
           )}
         </div>
-
-        {step.question_text && (
-          <p className="text-sm text-text-bright font-medium mb-2">{step.question_text}</p>
-        )}
-
-        {step.answer_options && step.answer_options.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {step.answer_options.map((opt, i) => (
-              <span
-                key={i}
-                className={cn(
-                  'text-xs px-2.5 py-1 rounded-full border',
-                  step.action_taken?.includes(opt.label)
-                    ? 'border-accent bg-accent-dim text-accent'
-                    : 'border-border text-text/60'
-                )}
-              >
-                {opt.label}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {step.action_taken && (
-          <p className="text-xs text-accent/80">
-            Action: {step.action_taken}
-          </p>
-        )}
-      </div>
+      )}
     </div>
   )
 }
@@ -108,6 +88,8 @@ function StepCard({ step }: { step: ScanStep }) {
 export function ScanDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [showAllChanges, setShowAllChanges] = useState(false)
+  const [showProgressLog, setShowProgressLog] = useState(false)
 
   const { data: scan, isLoading: loadingScan } = useQuery({
     queryKey: ['scan', id],
@@ -130,6 +112,9 @@ export function ScanDetail() {
   if (!scan) {
     return <div className="text-text/50 py-12 text-center">Scan not found</div>
   }
+
+  const driftSummary = (scan.summary as Record<string, unknown> | null)?.drift_summary as string | undefined
+  const progressLog = scan.progress_log ?? []
 
   return (
     <div>
@@ -174,38 +159,81 @@ export function ScanDetail() {
           </div>
         </div>
 
-        {/* Drift details */}
+        {/* Drift summary (LLM-generated) */}
+        {driftSummary && (
+          <p className="mt-4 text-sm text-text/80 leading-relaxed">{driftSummary}</p>
+        )}
+
+        {/* Drift details — collapsed by default */}
         {scan.drift_details && scan.drift_details.length > 0 && (
-          <div className="mt-4 p-3 bg-bg/50 rounded-lg border border-warning/20">
-            <p className="text-xs font-medium text-warning mb-2">Changes Detected</p>
-            <div className="space-y-1">
-              {scan.drift_details.map((d, i) => (
-                <p key={i} className="text-xs text-text/70">
-                  <span className={cn(
-                    'inline-block w-1.5 h-1.5 rounded-full mr-1.5',
-                    d.severity === 'critical' ? 'bg-danger' :
-                    d.severity === 'high' ? 'bg-warning' :
-                    d.severity === 'medium' ? 'bg-info' : 'bg-text/30'
-                  )} />
-                  {d.description}
-                </p>
-              ))}
-            </div>
+          <div className="mt-3">
+            <button
+              onClick={() => setShowAllChanges(!showAllChanges)}
+              className="flex items-center gap-1.5 text-xs text-text/50 hover:text-text/70 transition-colors"
+            >
+              {showAllChanges ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {scan.drift_details.length} change{scan.drift_details.length !== 1 ? 's' : ''} detected
+            </button>
+            {showAllChanges && (
+              <div className="mt-2 p-3 bg-bg/50 rounded-lg border border-border space-y-1">
+                {scan.drift_details.map((d, i) => (
+                  <p key={i} className="text-xs text-text/70">
+                    <span className={cn(
+                      'inline-block w-1.5 h-1.5 rounded-full mr-1.5',
+                      d.severity === 'critical' ? 'bg-danger' :
+                      d.severity === 'high' ? 'bg-warning' :
+                      d.severity === 'medium' ? 'bg-info' : 'bg-text/30'
+                    )} />
+                    {d.description}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Progress log */}
-      {scan.progress_log && scan.progress_log.length > 0 && (
-        <ProgressLog entries={scan.progress_log} />
+      {/* Progress log — collapsed by default */}
+      {progressLog.length > 0 && (
+        <div className="bg-bg-card rounded-xl border border-border mb-6">
+          <button
+            onClick={() => setShowProgressLog(!showProgressLog)}
+            className="w-full flex items-center gap-2 p-4 text-left hover:bg-bg-hover/30 transition-colors rounded-xl"
+          >
+            <ScrollText size={16} className="text-accent shrink-0" />
+            <span className="text-sm font-semibold text-text-bright">Progress Log</span>
+            <span className="text-xs text-text/40">{progressLog.length} events</span>
+            <span className="ml-auto">
+              {showProgressLog ? <ChevronDown size={14} className="text-text/30" /> : <ChevronRight size={14} className="text-text/30" />}
+            </span>
+          </button>
+          {showProgressLog && (
+            <div className="px-5 pb-4 space-y-1.5 max-h-[400px] overflow-y-auto">
+              {progressLog.map((entry: ProgressLogEntry, i: number) => (
+                <div key={i} className="flex gap-2.5 text-sm leading-relaxed">
+                  <span className="shrink-0 w-8 text-right text-xs text-text/30 pt-0.5 font-mono">
+                    {entry.step}
+                  </span>
+                  <span className="shrink-0 w-4 text-center text-xs pt-0.5 font-medium">
+                    <LogTypeIcon type={entry.type} />
+                  </span>
+                  <span className="text-text/80">{entry.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Steps timeline */}
-      <h2 className="text-lg font-medium text-text-bright mb-4">Steps</h2>
+      {/* Steps — compact table */}
+      <h2 className="text-lg font-medium text-text-bright mb-3">
+        Steps
+        {steps && <span className="text-sm font-normal text-text/40 ml-2">{steps.length}</span>}
+      </h2>
       {steps && steps.length > 0 ? (
-        <div>
+        <div className="bg-bg-card rounded-xl border border-border overflow-hidden">
           {steps.map(step => (
-            <StepCard key={step.id} step={step} />
+            <StepRow key={step.id} step={step} />
           ))}
         </div>
       ) : (

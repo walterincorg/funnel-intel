@@ -37,6 +37,7 @@ def _mock_eval_response(
     pricing_summary="No change",
     alert_worthy_changes=None,
     changes=None,
+    summary="",
 ):
     """Mock Call 2 (evaluation) response."""
     block = MagicMock()
@@ -48,6 +49,7 @@ def _mock_eval_response(
         "pricing_summary": pricing_summary,
         "alert_worthy_changes": alert_worthy_changes or [],
         "changes": changes or [],
+        "summary": summary,
     }
     resp = MagicMock()
     resp.content = [block]
@@ -312,6 +314,26 @@ class TestDiffRuns:
 
         assert result.changes == []
         assert result.drift_level == "none"
+
+    @patch("backend.worker.differ.anthropic.Anthropic")
+    @patch("backend.worker.differ._API_KEY", "sk-test")
+    def test_summary_wired_through(self, mock_cls):
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create.side_effect = [
+            _mock_tool_response([
+                {"baseline_step": 1, "latest_step": 1,
+                 "question_verdict": "SAME", "options_verdict": "SAME",
+                 "explanation": "identical"},
+            ]),
+            _mock_eval_response(
+                drift_level="none",
+                summary="No meaningful changes detected between the two scans.",
+            ),
+        ]
+
+        result = diff_runs([_step(1, "Age?")], [_step(1, "Age?")], None, None)
+        assert result.summary == "No meaningful changes detected between the two scans."
 
     @patch("backend.worker.differ.anthropic.Anthropic")
     @patch("backend.worker.differ._API_KEY", "sk-test")

@@ -171,8 +171,12 @@ def process_job(job: dict):
             competitor_slug=comp.get("slug"),
         )
 
-        # Store steps
+        # Deduplicate steps — keep last occurrence per step_number (most complete)
+        deduped_steps: dict[int, dict] = {}
         for step in result["steps"]:
+            num = step.get("step_number", 0)
+            deduped_steps[num] = step
+        for step in deduped_steps.values():
             db.table("scan_steps").insert({
                 "run_id": run_id,
                 "step_number": step.get("step_number", 0),
@@ -238,6 +242,10 @@ def process_job(job: dict):
                  "step_number": c.step_number, "description": c.description}
                 for c in diff.changes
             ]
+            if diff.summary:
+                s = update_data.get("summary") or {}
+                s["drift_summary"] = diff.summary
+                update_data["summary"] = s
 
             # Alert only on LLM-identified important changes (pricing or genuinely new questions)
             if diff.alert_worthy_changes:

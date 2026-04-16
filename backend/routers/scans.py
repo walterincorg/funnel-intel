@@ -46,9 +46,16 @@ def get_scan_steps(run_id: str):
         .select("*")
         .eq("run_id", run_id)
         .order("step_number")
+        .order("created_at", desc=True)
         .execute()
     )
-    return res.data
+    # Deduplicate — keep first (latest created_at) per step_number
+    seen: dict[int, dict] = {}
+    for row in res.data:
+        num = row.get("step_number")
+        if num not in seen:
+            seen[num] = row
+    return sorted(seen.values(), key=lambda r: r.get("step_number", 0))
 
 
 @router.post("/trigger", status_code=201)
