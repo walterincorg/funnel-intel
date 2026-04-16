@@ -126,9 +126,6 @@ def list_winners(limit: int = 10):
         start = snap.get("start_date")
         if not start:
             continue
-        # Skip ads that have ended
-        if snap.get("stop_date"):
-            continue
         try:
             days = (today - date.fromisoformat(str(start)[:10])).days
         except (ValueError, TypeError):

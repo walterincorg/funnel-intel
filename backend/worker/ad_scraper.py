@@ -141,14 +141,15 @@ def normalize_ad(raw: dict) -> dict:
     # Platforms from publisher_platforms
     platforms = snap.get("publisher_platforms") or raw.get("publisher_platforms") or []
 
-    # Status — an ad with a stop_date is always inactive
+    # Status — trust is_active flag from Apify; end_date is unreliable
+    # (scraper sets end_date to current date on ALL ads, even active ones)
     is_active = raw.get("is_active")
-    if stop_date:
-        status = "INACTIVE"
-    elif is_active is True or (not raw.get("is_inactive")):
+    if is_active is True:
         status = "ACTIVE"
-    else:
+    elif is_active is False or raw.get("is_inactive"):
         status = "INACTIVE"
+    else:
+        status = "ACTIVE"  # default to active if no flag present
 
     return {
         "meta_ad_id": str(raw.get("ad_archive_id") or raw.get("id", "")),
