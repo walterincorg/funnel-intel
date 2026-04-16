@@ -11,6 +11,8 @@ import logging
 import time
 from datetime import date, datetime, timezone
 
+from urllib.parse import urlparse
+
 from backend.config import DOMAIN_INTEL_DAY_OF_WEEK, DOMAIN_INTEL_HOUR_UTC
 from backend.db import get_db
 from backend.worker.domain_intel import run_fingerprint_extraction
@@ -109,13 +111,18 @@ def _run_domain_intel(today: date):
             }).eq("id", run_id).execute()
             return
 
-        # Phase 1: extract GA + Pixel codes
+        # Phase 1: extract GA/Pixel/GTM codes from competitor homepages
         for comp in comps:
             if not comp.get("funnel_url"):
                 continue
+            # Use the root domain (homepage), not the deep funnel URL.
+            # Tracking codes are reliably on the homepage; funnel pages
+            # are often JS-rendered SPAs with no inline tracking.
+            parsed = urlparse(comp["funnel_url"])
+            homepage_url = f"{parsed.scheme}://{parsed.netloc}/"
             try:
                 result = run_fingerprint_extraction(
-                    comp["id"], comp["name"], comp["funnel_url"]
+                    comp["id"], comp["name"], homepage_url
                 )
                 total_fingerprints += result.get("fingerprints_stored", 0)
                 competitors_scanned += 1

@@ -46,10 +46,19 @@ class TestExtractTrackingCodes:
         assert "google_analytics" in types
         assert "facebook_pixel" in types
 
-    def test_gtm_ignored(self):
+    def test_gtm_extracted(self):
         html = '<script src="https://www.googletagmanager.com/gtm.js?id=GTM-ABC123"></script>'
         codes = extract_tracking_codes(html, "https://example.com")
-        assert all(c["type"] != "gtm" for c in codes)
+        assert any(c["type"] == "gtm" and c["id"] == "GTM-ABC123" for c in codes)
+
+    def test_gtm_from_inline_snippet(self):
+        html = """<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+        new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+        'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+        })(window,document,'script','dataLayer','GTM-5WVFRTZ');</script>"""
+        codes = extract_tracking_codes(html, "https://example.com")
+        assert any(c["type"] == "gtm" and c["id"] == "GTM-5WVFRTZ" for c in codes)
 
     def test_deduplicates_same_code(self):
         html = """

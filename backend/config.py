@@ -2,7 +2,7 @@ import os
 import subprocess
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")

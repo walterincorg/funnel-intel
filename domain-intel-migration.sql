@@ -23,7 +23,7 @@ CREATE TABLE domain_fingerprints (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   competitor_id uuid NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
   domain text NOT NULL,
-  fingerprint_type text NOT NULL CHECK (fingerprint_type IN ('google_analytics', 'facebook_pixel')),
+  fingerprint_type text NOT NULL CHECK (fingerprint_type IN ('google_analytics', 'facebook_pixel', 'gtm')),
   fingerprint_value text NOT NULL,
   detected_at_url text,
   raw_snippet text,
@@ -36,7 +36,7 @@ CREATE INDEX idx_fingerprints_competitor ON domain_fingerprints(competitor_id);
 -- === OPERATOR CLUSTERS (competitors sharing a GA or Pixel code) ===
 CREATE TABLE operator_clusters (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  fingerprint_type text NOT NULL CHECK (fingerprint_type IN ('google_analytics', 'facebook_pixel')),
+  fingerprint_type text NOT NULL CHECK (fingerprint_type IN ('google_analytics', 'facebook_pixel', 'gtm')),
   fingerprint_value text NOT NULL,
   detected_at timestamptz DEFAULT now(),
   UNIQUE(fingerprint_type, fingerprint_value)

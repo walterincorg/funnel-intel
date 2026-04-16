@@ -17,8 +17,9 @@ const SHARED_COLORS = [
 const TYPE_LABELS: Record<string, string> = {
   google_analytics: 'Google Analytics',
   facebook_pixel: 'Facebook Pixel',
+  gtm: 'Google Tag Manager',
 }
-const TYPES = ['google_analytics', 'facebook_pixel'] as const
+const TYPES = ['google_analytics', 'facebook_pixel', 'gtm'] as const
 
 export function DomainIntel() {
   const [tab, setTab] = useState<Tab>('matrix')
