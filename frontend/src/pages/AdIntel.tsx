@@ -392,18 +392,19 @@ export function AdIntel() {
           </h1>
           <p className="text-sm text-text/60 mt-1">What competitors are doing — and what you should do about it.</p>
         </div>
-        {scrapeActive ? (
-          <span className="text-sm text-text/50 px-4 py-2">Scraping...</span>
-        ) : (
+        <div className="flex items-center gap-2">
+          {scrapeActive && (
+            <span className="text-sm text-text/50 animate-pulse">Scraping...</span>
+          )}
           <button
             onClick={() => scrapeMutation.mutate()}
             disabled={scrapeMutation.isPending}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-50"
           >
             <Play size={16} />
-            {scrapeMutation.isPending ? 'Queuing...' : 'Scrape Now'}
+            {scrapeMutation.isPending ? 'Queuing...' : scrapeActive ? 'Restart Scrape' : 'Scrape Now'}
           </button>
-        )}
+        </div>
       </div>
 
       {/* Stats row */}

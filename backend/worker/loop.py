@@ -239,15 +239,11 @@ def process_job(job: dict):
                 for c in diff.changes
             ]
 
-            # Alert only on question, answer-options, pricing, or discount changes.
-            # The `structural` category (step-count summary) is dropped because
-            # per-step messages in the `funnel` category already convey it.
-            alert_changes = [c for c in diff.changes if c.category in ("funnel", "pricing")]
-            if alert_changes:
+            # Alert only on LLM-identified important changes (pricing or genuinely new questions)
+            if diff.alert_worthy_changes:
                 alert_lines = [f"🔔 {comp['name']} — funnel changes detected:"]
-                for c in alert_changes:
-                    icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(c.severity, "⚪")
-                    alert_lines.append(f"  {icon} [{c.severity}] {c.description}")
+                for desc in diff.alert_worthy_changes:
+                    alert_lines.append(f"  🟠 {desc}")
                 send_alert("\n".join(alert_lines))
 
         db.table("scan_runs").update(update_data).eq("id", run_id).execute()

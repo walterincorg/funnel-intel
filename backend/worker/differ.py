@@ -40,6 +40,9 @@ class Change:
 class DiffResult:
     changes: list[Change] = field(default_factory=list)
     drift_level: str = "none"  # none, minor, major
+    pricing_changed: bool = False
+    pricing_summary: str = ""
+    alert_worthy_changes: list[str] = field(default_factory=list)
 
     @property
     def has_changes(self) -> bool:
@@ -68,53 +71,6 @@ def _deduplicate_steps(steps: list[dict]) -> list[dict]:
             seen[num] = s
     return sorted(seen.values(), key=lambda s: s.get("step_number", 0))
 
-
-def _normalize_price(price) -> str:
-    if price is None:
-        return ""
-    return str(price).strip().lstrip("$").strip()
-
-
-def _plan_key(plan: dict) -> str:
-    return " ".join(str(plan.get("name", "")).strip().lower().split())
-
-
-# ---------------------------------------------------------------------------
-# Pricing diff (string comparison is fine for concrete numbers)
-# ---------------------------------------------------------------------------
-
-def _diff_pricing(base: dict, new: dict, result: DiffResult):
-    base_plans = {_plan_key(p): p for p in (base.get("plans") or []) if _plan_key(p)}
-    new_plans = {_plan_key(p): p for p in (new.get("plans") or []) if _plan_key(p)}
-
-    for key in set(base_plans.keys()) | set(new_plans.keys()):
-        bp = base_plans.get(key)
-        np = new_plans.get(key)
-        display_name = (np or bp or {}).get("name", key)
-
-        if bp and not np:
-            result.changes.append(Change("high", "pricing", None, f"Plan '{display_name}' removed"))
-        elif np and not bp:
-            price = np.get("price", "?")
-            result.changes.append(Change("high", "pricing", None, f"New plan '{display_name}' at {price}"))
-        elif bp and np:
-            old_price = _normalize_price(bp.get("price"))
-            new_price = _normalize_price(np.get("price"))
-            if old_price and new_price and old_price != new_price:
-                result.changes.append(Change(
-                    "high", "pricing", None,
-                    f"Plan '{display_name}' price changed: {bp.get('price')} -> {np.get('price')}",
-                ))
-
-    base_discounts = base.get("discounts") or []
-    new_discounts = new.get("discounts") or []
-    if base_discounts != new_discounts:
-        if new_discounts and not base_discounts:
-            result.changes.append(Change("high", "pricing", None, "New discount(s) detected"))
-        elif base_discounts and not new_discounts:
-            result.changes.append(Change("high", "pricing", None, "Discount(s) removed"))
-        else:
-            result.changes.append(Change("high", "pricing", None, "Discount details changed"))
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +117,158 @@ DIFF_TOOL = {
         "required": ["alignments"],
     },
 }
+
+
+EVAL_TOOL = {
+    "name": "save_evaluation",
+    "description": "Save the final evaluation of funnel changes, pricing, drift level, and alert-worthy items.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "drift_level": {
+                "type": "string",
+                "enum": ["none", "minor", "major"],
+                "description": (
+                    "'none' if nothing meaningful changed (cosmetic rewording, A/B test "
+                    "variations, step reordering are NOT meaningful). 'minor' for small real "
+                    "changes. 'major' for significant changes like genuinely new questions, "
+                    "removed questions, or pricing changes."
+                ),
+            },
+            "pricing_changed": {
+                "type": "boolean",
+                "description": (
+                    "True only if actual price amounts, plan lineup, or discount terms "
+                    "genuinely changed. Format differences ('$29.99' vs '29.99'), whitespace, "
+                    "and currency symbol presence are NOT changes."
+                ),
+            },
+            "pricing_summary": {
+                "type": "string",
+                "description": "One-sentence summary of what changed in pricing, or 'No change'.",
+            },
+            "alert_worthy_changes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Short descriptions of changes that warrant an alert. Only include: "
+                    "genuine pricing changes OR genuinely new questions that were not present "
+                    "before in any form. Exclude cosmetic rewording, A/B test variations, "
+                    "and reordered steps."
+                ),
+            },
+            "changes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "baseline_step": {"type": ["integer", "null"]},
+                        "latest_step": {"type": ["integer", "null"]},
+                        "final_severity": {
+                            "type": "string",
+                            "enum": ["high", "medium", "low", "none"],
+                            "description": (
+                                "'high' only for genuine pricing changes or genuinely new "
+                                "questions. 'low' for cosmetic, rewords, A/B tests. "
+                                "'none' to suppress a false positive."
+                            ),
+                        },
+                        "category": {
+                            "type": "string",
+                            "enum": ["funnel", "pricing"],
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "One-sentence description of this change.",
+                        },
+                    },
+                    "required": ["baseline_step", "latest_step", "final_severity",
+                                 "category", "description"],
+                },
+                "description": (
+                    "One entry per real change. Skip SAME-verdict pairs with no change. "
+                    "Use final_severity='none' to suppress false positives."
+                ),
+            },
+        },
+        "required": ["drift_level", "pricing_changed", "pricing_summary",
+                      "alert_worthy_changes", "changes"],
+    },
+}
+
+
+def _build_eval_prompt(
+    alignments: list[dict],
+    baseline_pricing: dict | None,
+    new_pricing: dict | None,
+) -> str:
+    import json
+    alignment_json = json.dumps(alignments, indent=2)
+    bl_pricing_json = json.dumps(baseline_pricing, indent=2) if baseline_pricing else "null"
+    lt_pricing_json = json.dumps(new_pricing, indent=2) if new_pricing else "null"
+
+    return (
+        "You are evaluating changes detected in a website's quiz funnel between two scan runs.\n\n"
+        "## Step Alignments from prior analysis\n"
+        f"{alignment_json}\n\n"
+        "## Pricing\n"
+        f"BASELINE PRICING:\n{bl_pricing_json}\n\n"
+        f"LATEST PRICING:\n{lt_pricing_json}\n\n"
+        "## Your task\n"
+        "Evaluate everything together and decide:\n\n"
+        "1. **drift_level**: 'none' if nothing meaningful changed (cosmetic rewording, A/B test "
+        "variations, and step reordering are NOT meaningful). 'minor' for small real changes. "
+        "'major' for significant changes like genuinely new questions, removed questions, or "
+        "pricing changes.\n\n"
+        "2. **pricing_changed**: true ONLY if actual prices, plan lineup, or discount terms "
+        "genuinely changed. Format differences ('$29.99' vs '29.99'), whitespace, and currency "
+        "symbol presence are NOT changes. If one side is null (not captured), that alone is not "
+        "a pricing change.\n\n"
+        "3. **pricing_summary**: describe what changed, or 'No change'.\n\n"
+        "4. **alert_worthy_changes**: list ONLY changes that matter enough to send a notification. "
+        "This means: genuine pricing changes (price went up/down, plan added/removed) OR "
+        "genuinely new questions that weren't asked before in any form. Do NOT include: "
+        "cosmetic rewording, A/B test option variations, step reordering, or questions that "
+        "are just rephrased versions of existing ones.\n\n"
+        "5. **changes**: for each alignment that represents a real change (skip SAME+SAME pairs), "
+        "assign a final_severity:\n"
+        "   - 'high': only for genuine pricing changes or genuinely new questions\n"
+        "   - 'low': for everything else (cosmetic, rewords, A/B tests, reordering)\n"
+        "   - 'none': if on reflection this is not a real change at all\n\n"
+        "Use the save_evaluation tool."
+    )
+
+
+def _run_evaluation(
+    alignments: list[dict],
+    baseline_pricing: dict | None,
+    new_pricing: dict | None,
+) -> dict:
+    prompt = _build_eval_prompt(alignments, baseline_pricing, new_pricing)
+    log.info("Running change evaluation via %s", DIFF_MODEL)
+    eval_start = time.perf_counter()
+    client = anthropic.Anthropic(api_key=_API_KEY)
+    response = client.messages.create(
+        model=DIFF_MODEL,
+        max_tokens=4096,
+        temperature=0,
+        tools=[EVAL_TOOL],
+        messages=[{"role": "user", "content": prompt}],
+    )
+    eval_duration_ms = (time.perf_counter() - eval_start) * 1000
+    log.info("Change evaluation completed in %.1fs", eval_duration_ms / 1000,
+             extra={"duration_ms": round(eval_duration_ms)})
+
+    tool_input = None
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "save_evaluation":
+            tool_input = block.input
+            break
+
+    if not tool_input:
+        raise ValueError("LLM did not return save_evaluation tool call")
+
+    return tool_input
 
 
 def _format_steps(steps: list[dict], label: str) -> str:
@@ -215,51 +323,6 @@ def _build_diff_prompt(baseline_steps: list[dict], new_steps: list[dict]) -> str
     )
 
 
-def _parse_alignments(alignments: list[dict]) -> list[Change]:
-    changes: list[Change] = []
-    for a in alignments:
-        q = a.get("question_verdict", "SAME")
-        o = a.get("options_verdict", "N_A")
-        explanation = a.get("explanation", "")
-        bl = a.get("baseline_step")
-        lt = a.get("latest_step")
-        step_num = lt or bl
-
-        if q == "REMOVED":
-            changes.append(Change(
-                "medium", "funnel", bl,
-                f"Step {bl} removed: {explanation}",
-            ))
-        elif q == "NEW":
-            changes.append(Change(
-                "medium", "funnel", lt,
-                f"New step {lt}: {explanation}",
-            ))
-        elif q == "DIFFERENT":
-            changes.append(Change(
-                "high", "funnel", step_num,
-                f"Step changed (baseline {bl} -> latest {lt}): {explanation}",
-            ))
-        elif q == "COSMETIC":
-            changes.append(Change(
-                "low", "funnel", step_num,
-                f"Step reworded (baseline {bl} -> latest {lt}): {explanation}",
-            ))
-
-        if q in ("SAME", "COSMETIC"):
-            if o == "VARIABLE":
-                changes.append(Change(
-                    "low", "funnel", step_num,
-                    f"Step {step_num} options vary (likely A/B test)",
-                ))
-            elif o == "CHANGED":
-                changes.append(Change(
-                    "medium", "funnel", step_num,
-                    f"Step {step_num} answer options changed",
-                ))
-
-    return changes
-
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -272,73 +335,74 @@ def diff_runs(baseline_steps: list[dict], new_steps: list[dict],
 
     result = DiffResult()
 
-    if len(baseline_steps) != len(new_steps):
-        diff = len(new_steps) - len(baseline_steps)
-        direction = "more" if diff > 0 else "fewer"
-        result.changes.append(Change(
-            severity="medium", category="structural", step_number=None,
-            description=f"Funnel now has {abs(diff)} {direction} steps "
-                        f"({len(baseline_steps)} -> {len(new_steps)})",
-        ))
+    # Edge cases: one or both sides empty — no LLM needed
+    if not baseline_steps and not new_steps:
+        return result
 
-    if baseline_steps and new_steps:
-        prompt = _build_diff_prompt(baseline_steps, new_steps)
-        log.info("Running semantic diff: %d baseline vs %d new steps via %s",
-                 len(baseline_steps), len(new_steps), DIFF_MODEL)
-        diff_start = time.perf_counter()
-        client = anthropic.Anthropic(api_key=_API_KEY)
-        response = client.messages.create(
-            model=DIFF_MODEL,
-            max_tokens=8192,
-            temperature=0,
-            tools=[DIFF_TOOL],
-            messages=[{"role": "user", "content": prompt}],
-        )
-        diff_duration_ms = (time.perf_counter() - diff_start) * 1000
-        log.info("Semantic diff completed in %.1fs", diff_duration_ms / 1000,
-                 extra={"duration_ms": round(diff_duration_ms)})
-
-        tool_input = None
-        for block in response.content:
-            if block.type == "tool_use" and block.name == "save_diff_result":
-                tool_input = block.input
-                break
-
-        if not tool_input:
-            raise ValueError("LLM did not return save_diff_result tool call")
-
-        result.changes.extend(_parse_alignments(tool_input.get("alignments", [])))
-
-    elif not new_steps:
+    if not new_steps:
         for s in baseline_steps:
             result.changes.append(Change(
                 "medium", "funnel", s.get("step_number"),
                 f"Step {s.get('step_number')} removed",
             ))
-    elif not baseline_steps:
+        result.drift_level = "minor"
+        return result
+
+    if not baseline_steps:
         for s in new_steps:
             q = (s.get("question_text") or "unknown")[:60]
             result.changes.append(Change(
                 "medium", "funnel", s.get("step_number"),
                 f"New step {s.get('step_number')}: '{q}'",
             ))
-
-    if baseline_pricing and new_pricing:
-        _diff_pricing(baseline_pricing, new_pricing, result)
-    elif new_pricing and not baseline_pricing:
-        result.changes.append(Change("high", "pricing", None,
-                                     "Pricing now visible (was not captured before)"))
-    elif baseline_pricing and not new_pricing:
-        result.changes.append(Change("high", "pricing", None,
-                                     "Pricing no longer visible"))
-
-    major_count = sum(
-        1 for c in result.changes
-        if c.category == "funnel" and c.severity in ("high", "critical")
-    )
-    if major_count >= 3:
-        result.drift_level = "major"
-    elif result.has_changes:
         result.drift_level = "minor"
+        return result
+
+    # --- Call 1: Step alignment ---
+    prompt = _build_diff_prompt(baseline_steps, new_steps)
+    log.info("Running semantic diff: %d baseline vs %d new steps via %s",
+             len(baseline_steps), len(new_steps), DIFF_MODEL)
+    diff_start = time.perf_counter()
+    client = anthropic.Anthropic(api_key=_API_KEY)
+    response = client.messages.create(
+        model=DIFF_MODEL,
+        max_tokens=8192,
+        temperature=0,
+        tools=[DIFF_TOOL],
+        messages=[{"role": "user", "content": prompt}],
+    )
+    diff_duration_ms = (time.perf_counter() - diff_start) * 1000
+    log.info("Semantic diff completed in %.1fs", diff_duration_ms / 1000,
+             extra={"duration_ms": round(diff_duration_ms)})
+
+    tool_input = None
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "save_diff_result":
+            tool_input = block.input
+            break
+
+    if not tool_input:
+        raise ValueError("LLM did not return save_diff_result tool call")
+
+    alignments = tool_input.get("alignments", [])
+
+    # --- Call 2: Evaluation (severity, pricing, drift, alerts) ---
+    evaluation = _run_evaluation(alignments, baseline_pricing, new_pricing)
+
+    result.drift_level = evaluation.get("drift_level", "none")
+    result.pricing_changed = evaluation.get("pricing_changed", False)
+    result.pricing_summary = evaluation.get("pricing_summary", "")
+    result.alert_worthy_changes = evaluation.get("alert_worthy_changes", [])
+
+    for change in evaluation.get("changes", []):
+        sev = change.get("final_severity", "low")
+        if sev == "none":
+            continue
+        result.changes.append(Change(
+            severity=sev,
+            category=change.get("category", "funnel"),
+            step_number=change.get("latest_step") or change.get("baseline_step"),
+            description=change.get("description", ""),
+        ))
 
     return result
