@@ -81,8 +81,8 @@ export function Competitors() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-semibold text-text-bright">Competitors</h1>
-          <p className="text-sm text-text/60 mt-1">Manage your tracked competitors</p>
+          <h1 className="text-2xl font-semibold text-text-bright">Competitor Scans</h1>
+          <p className="text-sm text-text/60 mt-1">Monitor competitor funnels and track changes</p>
         </div>
         <button
           onClick={() => setShowAdd(true)}

@@ -15,7 +15,7 @@ const groups: NavGroup[] = [
     icon: DollarSign,
     children: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/competitors', icon: Users, label: 'Competitors' },
+      { to: '/competitor-scans', icon: ScanSearch, label: 'Scans' },
       { to: '/pricing', icon: DollarSign, label: 'Pricing' },
     ],
   },
@@ -27,6 +27,10 @@ const groups: NavGroup[] = [
       { to: '/domain-intel', icon: Globe, label: 'Domain Intel' },
     ],
   },
+]
+
+const standaloneLinks = [
+  { to: '/competitors/manage', icon: Users, label: 'Manage Competitors' },
 ]
 
 function isGroupActive(group: NavGroup, pathname: string) {
@@ -46,7 +50,6 @@ export function Sidebar() {
     return init
   })
 
-  // Auto-expand the group containing the current route
   useEffect(() => {
     setExpanded(prev => {
       const next = { ...prev }
@@ -84,7 +87,7 @@ export function Sidebar() {
       <aside
         className={cn(
           'fixed top-0 left-0 h-full w-60 bg-bg-card border-r border-border z-40 flex flex-col transition-transform duration-200',
-          'md:translate-x-0 md:static',
+          'md:translate-x-0 md:static md:h-screen md:sticky',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
@@ -150,6 +153,26 @@ export function Sidebar() {
               </div>
             )
           })}
+
+          {/* Standalone links */}
+          {standaloneLinks.map(({ to, icon: Icon, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              onClick={() => setOpen(false)}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
+                  isActive
+                    ? 'bg-accent-dim text-accent font-medium'
+                    : 'text-text hover:bg-bg-hover hover:text-text-bright'
+                )
+              }
+            >
+              <Icon size={18} />
+              {label}
+            </NavLink>
+          ))}
         </nav>
       </aside>
     </>

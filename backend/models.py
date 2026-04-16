@@ -9,6 +9,8 @@ class CompetitorCreate(BaseModel):
     name: str
     slug: str
     funnel_url: str
+    brand_keyword: str | None = None
+    ads_library_url: str | None = None
     config: dict | None = None
 
 
@@ -16,6 +18,8 @@ class CompetitorUpdate(BaseModel):
     name: str | None = None
     slug: str | None = None
     funnel_url: str | None = None
+    brand_keyword: str | None = None
+    ads_library_url: str | None = None
     config: dict | None = None
 
 
@@ -24,6 +28,8 @@ class Competitor(BaseModel):
     name: str
     slug: str
     funnel_url: str
+    brand_keyword: str | None = None
+    ads_library_url: str | None = None
     config: dict | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

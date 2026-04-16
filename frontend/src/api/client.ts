@@ -23,6 +23,8 @@ export interface Competitor {
   name: string
   slug: string
   funnel_url: string
+  brand_keyword: string | null
+  ads_library_url: string | null
   config: Record<string, unknown> | null
   created_at: string
   updated_at: string | null
@@ -265,7 +267,7 @@ export const api = {
   // Competitors
   listCompetitors: () => request<Competitor[]>('/competitors'),
   getCompetitor: (id: string) => request<Competitor>(`/competitors/${id}`),
-  createCompetitor: (data: { name: string; slug: string; funnel_url: string; config?: Record<string, unknown> }) =>
+  createCompetitor: (data: { name: string; slug: string; funnel_url: string; brand_keyword?: string; ads_library_url?: string; config?: Record<string, unknown> }) =>
     request<Competitor>('/competitors', { method: 'POST', body: JSON.stringify(data) }),
   updateCompetitor: (id: string, data: Partial<Competitor>) =>
     request<Competitor>(`/competitors/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
