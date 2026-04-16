@@ -168,14 +168,30 @@ export interface AdScrapeRun {
   created_at: string
 }
 
-export interface CompetitorAnalysis {
+export interface AdBriefing {
   id: string
-  competitor_id: string
-  analysis_date: string
+  briefing_date: string
+  headline: string
   summary: string
-  top_ads: { ad_id: string | null; meta_ad_id: string; reason: string }[]
-  strategy_tags: string[]
+  suggested_action: string
+  winner_ads: { ad_id: string; meta_ad_id: string; competitor_name: string }[]
+  competitor_moves: { competitor_name: string; move_summary: string }[]
   created_at: string
+}
+
+export interface WinnerAd {
+  ad_id: string
+  meta_ad_id: string
+  competitor_id: string
+  competitor_name: string
+  media_type: string | null
+  headline: string | null
+  body_text: string | null
+  image_url: string | null
+  video_url: string | null
+  cta: string | null
+  days_active: number
+  landing_page_url: string | null
 }
 
 // --- Domain Intelligence ---
@@ -292,8 +308,9 @@ export const api = {
   adSignalsSummary: (days?: number) =>
     request<AdSignalSummary[]>(days ? `/ads/signals/summary?days=${days}` : '/ads/signals/summary'),
   listAdScrapeRuns: () => request<AdScrapeRun[]>('/ads/scrape-runs'),
-  listAnalyses: (competitorId?: string) =>
-    request<CompetitorAnalysis[]>(competitorId ? `/ads/analysis?competitor_id=${competitorId}` : '/ads/analysis'),
+  getBriefing: () => request<AdBriefing | null>('/ads/briefing'),
+  listWinners: (limit?: number) =>
+    request<WinnerAd[]>(limit ? `/ads/winners?limit=${limit}` : '/ads/winners'),
   triggerAdScrape: () =>
     request<{ run_id: string; status: string }>('/ads/scrape/trigger', { method: 'POST' }),
 

@@ -146,13 +146,14 @@ class AdScrapeRunOut(BaseModel):
     created_at: datetime | None = None
 
 
-class CompetitorAnalysisOut(BaseModel):
+class AdBriefingOut(BaseModel):
     id: str
-    competitor_id: str
-    analysis_date: str
+    briefing_date: str
+    headline: str
     summary: str
-    top_ads: list[dict] = []
-    strategy_tags: list[str] = []
+    suggested_action: str
+    winner_ads: list[dict] = []
+    competitor_moves: list[dict] = []
     created_at: datetime | None = None
 
 

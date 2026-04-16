@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Megaphone, Play, TrendingUp, Trophy, Sparkles, ArrowRightLeft, X, Zap, ExternalLink, CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, Brain } from 'lucide-react'
-import { api, type Ad, type AdSignal, type AdSnapshot, type AdScrapeRun } from '@/api/client'
+import { Megaphone, Play, TrendingUp, Trophy, Sparkles, ArrowRightLeft, X, Zap, ExternalLink, CheckCircle, XCircle, Clock, ChevronDown, ChevronRight, Lightbulb, Target } from 'lucide-react'
+import { api, type Ad, type AdSignal, type AdSnapshot, type AdScrapeRun, type AdBriefing, type WinnerAd } from '@/api/client'
 import { cn } from '@/lib/utils'
 
 const SIGNAL_CONFIG: Record<string, { label: string; icon: typeof Megaphone; color: string; bg: string }> = {
@@ -56,7 +56,6 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
         className="bg-bg-card rounded-xl border border-border w-full max-w-lg max-h-[85vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-text-bright">
@@ -84,7 +83,6 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
             <div className="text-text/50 text-sm text-center py-8">Loading...</div>
           ) : (
             <>
-              {/* Media */}
               {snap?.video_url ? (
                 <video
                   src={snap.video_url}
@@ -103,7 +101,6 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
                 </div>
               )}
 
-              {/* Copy */}
               {snap?.body_text && (
                 <p className="text-sm text-text/80 leading-relaxed">{snap.body_text}</p>
               )}
@@ -114,7 +111,6 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
                 </span>
               )}
 
-              {/* Meta */}
               <div className="space-y-2 pt-1 border-t border-border/50">
                 {snap?.platforms && snap.platforms.length > 0 && (
                   <div className="flex flex-wrap gap-1">
@@ -138,7 +134,6 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
                 )}
               </div>
 
-              {/* Landing page */}
               {(snap?.landing_page_url || ad?.landing_page_url) && (
                 <a
                   href={snap?.landing_page_url || ad?.landing_page_url || '#'}
@@ -153,6 +148,98 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
             </>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function BriefingSection({ briefing }: { briefing: AdBriefing }) {
+  return (
+    <div className="bg-bg-card rounded-xl border border-accent/20 p-6 mb-8">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <p className="text-xs text-text/40 uppercase tracking-wide mb-1">Weekly Briefing</p>
+          <h2 className="text-lg font-semibold text-text-bright">{briefing.headline}</h2>
+        </div>
+        <span className="text-xs text-text/40 shrink-0 ml-4">{briefing.briefing_date}</span>
+      </div>
+
+      <p className="text-sm text-text/80 leading-relaxed mb-4">{briefing.summary}</p>
+
+      <div className="flex items-start gap-2 p-3 rounded-lg bg-accent/5 border border-accent/10">
+        <Lightbulb size={16} className="text-accent shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs text-accent font-medium uppercase tracking-wide mb-0.5">Suggested Action</p>
+          <p className="text-sm text-text-bright">{briefing.suggested_action}</p>
+        </div>
+      </div>
+
+      {briefing.competitor_moves.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-border/50">
+          <p className="text-xs text-text/40 uppercase tracking-wide mb-2">Competitor Moves</p>
+          <div className="space-y-1.5">
+            {briefing.competitor_moves.map((move, i) => (
+              <div key={i} className="flex items-start gap-2 text-sm">
+                <Target size={14} className="text-text/30 shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-medium text-text-bright">{move.competitor_name}:</span>{' '}
+                  <span className="text-text/70">{move.move_summary}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WinnerCard({ winner, onClick }: { winner: WinnerAd; onClick: () => void }) {
+  return (
+    <div
+      className="bg-bg-card rounded-xl border border-border overflow-hidden cursor-pointer hover:border-accent/30 transition-colors"
+      onClick={onClick}
+    >
+      {winner.video_url ? (
+        <video
+          src={winner.video_url}
+          className="w-full h-40 object-cover bg-bg"
+          muted
+        />
+      ) : winner.image_url ? (
+        <img
+          src={winner.image_url}
+          alt={winner.headline || 'Ad creative'}
+          className="w-full h-40 object-cover bg-bg"
+        />
+      ) : (
+        <div className="w-full h-40 bg-bg flex items-center justify-center text-text/20 text-sm">
+          No media
+        </div>
+      )}
+
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-text/50">{winner.competitor_name}</span>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success">
+            <Trophy size={10} />
+            {winner.days_active}d
+          </span>
+        </div>
+
+        {winner.headline && (
+          <p className="text-sm font-medium text-text-bright line-clamp-2 mb-1">{winner.headline}</p>
+        )}
+
+        {winner.body_text && (
+          <p className="text-xs text-text/60 line-clamp-2">{winner.body_text}</p>
+        )}
+
+        {winner.cta && (
+          <span className="inline-block mt-2 px-2 py-0.5 rounded bg-accent/10 text-accent text-xs">
+            {winner.cta}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -230,24 +317,35 @@ function ScrapeRunStrip({ runs }: { runs: AdScrapeRun[] }) {
 
 export function AdIntel() {
   const queryClient = useQueryClient()
+  const [selectedAdId, setSelectedAdId] = useState<string | null>(null)
+  const [showSignals, setShowSignals] = useState(false)
   const [filterCompetitor, setFilterCompetitor] = useState<string>('')
   const [filterType, setFilterType] = useState<string>('')
   const [days, setDays] = useState(7)
-  const [selectedAdId, setSelectedAdId] = useState<string | null>(null)
-  const [analysisOpen, setAnalysisOpen] = useState(true)
 
   const { data: competitors } = useQuery({
     queryKey: ['competitors'],
     queryFn: api.listCompetitors,
   })
 
-  const { data: signals, isLoading } = useQuery({
+  const { data: briefing } = useQuery({
+    queryKey: ['ad-briefing'],
+    queryFn: api.getBriefing,
+  })
+
+  const { data: winners, isLoading: winnersLoading } = useQuery({
+    queryKey: ['ad-winners'],
+    queryFn: () => api.listWinners(6),
+  })
+
+  const { data: signals } = useQuery({
     queryKey: ['ad-signals', filterCompetitor, filterType, days],
     queryFn: () => api.listAdSignals({
       competitor_id: filterCompetitor || undefined,
       signal_type: filterType || undefined,
       days,
     }),
+    enabled: showSignals,
   })
 
   const { data: summary } = useQuery({
@@ -261,11 +359,6 @@ export function AdIntel() {
     refetchInterval: 5000,
   })
 
-  const { data: analyses } = useQuery({
-    queryKey: ['ad-analyses', filterCompetitor],
-    queryFn: () => api.listAnalyses(filterCompetitor || undefined),
-  })
-
   const scrapeMutation = useMutation({
     mutationFn: api.triggerAdScrape,
     onSuccess: () => {
@@ -273,7 +366,6 @@ export function AdIntel() {
     },
   })
 
-  // Derive scrape button state from DB, not from mutation lifecycle
   const scrapeActive = (scrapeRuns ?? []).some(r => r.status === 'pending' || r.status === 'running')
 
   const compMap = new Map<string, string>()
@@ -285,22 +377,23 @@ export function AdIntel() {
   for (const s of summary ?? []) {
     summaryMap.set(s.signal_type, s.count)
   }
-  const newAds = summaryMap.get('new_ad') ?? 0
-  const totalSignals = (summary ?? []).reduce((acc, s) => acc + s.count, 0)
   const provenWinners = summaryMap.get('proven_winner') ?? 0
+  const countSpikes = summaryMap.get('count_spike') ?? 0
+  const totalSignals = (summary ?? []).reduce((acc, s) => acc + s.count, 0)
 
   return (
     <div>
+      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-semibold text-text-bright flex items-center gap-2">
             <Megaphone size={24} className="text-accent" />
             Ad Intelligence
           </h1>
-          <p className="text-sm text-text/60 mt-1">What competitors did differently — and does it matter?</p>
+          <p className="text-sm text-text/60 mt-1">What competitors are doing — and what you should do about it.</p>
         </div>
         {scrapeActive ? (
-          <span className="text-sm text-text/50 px-4 py-2">Scraping…</span>
+          <span className="text-sm text-text/50 px-4 py-2">Scraping...</span>
         ) : (
           <button
             onClick={() => scrapeMutation.mutate()}
@@ -316,146 +409,120 @@ export function AdIntel() {
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <div className="bg-bg-card rounded-xl border border-border p-4">
-          <p className="text-xs text-text/60 uppercase tracking-wide">New Ads ({days}d)</p>
-          <p className="text-2xl font-semibold text-info mt-1">{newAds}</p>
+          <p className="text-xs text-text/60 uppercase tracking-wide">Winners ({days}d)</p>
+          <p className="text-2xl font-semibold text-success mt-1">{provenWinners}</p>
+        </div>
+        <div className="bg-bg-card rounded-xl border border-border p-4">
+          <p className="text-xs text-text/60 uppercase tracking-wide">Spikes ({days}d)</p>
+          <p className="text-2xl font-semibold text-danger mt-1">{countSpikes}</p>
         </div>
         <div className="bg-bg-card rounded-xl border border-border p-4">
           <p className="text-xs text-text/60 uppercase tracking-wide">Total Signals ({days}d)</p>
           <p className="text-2xl font-semibold text-text-bright mt-1">{totalSignals}</p>
         </div>
-        <div className="bg-bg-card rounded-xl border border-border p-4">
-          <p className="text-xs text-text/60 uppercase tracking-wide">Proven Winners</p>
-          <p className="text-2xl font-semibold text-success mt-1">{provenWinners}</p>
-        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        <select
-          value={filterCompetitor}
-          onChange={e => setFilterCompetitor(e.target.value)}
-          className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-bright"
-        >
-          <option value="">All Competitors</option>
-          {(competitors ?? []).map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+      {/* CEO Briefing */}
+      {briefing && <BriefingSection briefing={briefing} />}
 
-        <select
-          value={filterType}
-          onChange={e => setFilterType(e.target.value)}
-          className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-bright"
-        >
-          <option value="">All Signals</option>
-          {Object.entries(SIGNAL_CONFIG).map(([key, { label }]) => (
-            <option key={key} value={key}>{label}</option>
-          ))}
-        </select>
-
-        <div className="flex items-center gap-1">
-          {[7, 14, 30].map(d => (
-            <button
-              key={d}
-              onClick={() => setDays(d)}
-              className={cn(
-                'px-3 py-1.5 rounded-lg text-sm transition-colors',
-                days === d
-                  ? 'bg-accent text-white'
-                  : 'bg-bg-card border border-border text-text hover:bg-bg-hover'
-              )}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Analysis section */}
-      {analyses && analyses.length > 0 && (
+      {/* Winner Spotlight */}
+      {winners && winners.length > 0 && (
         <div className="mb-8">
-          <button
-            onClick={() => setAnalysisOpen(!analysisOpen)}
-            className="flex items-center gap-2 text-sm font-medium text-text-bright mb-4 hover:text-accent transition-colors"
-          >
-            {analysisOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-            <Brain size={16} className="text-accent" />
-            Strategy Analysis ({analyses.length} competitor{analyses.length !== 1 ? 's' : ''})
-          </button>
-
-          {analysisOpen && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {analyses.map(a => (
-                <div key={a.id} className="bg-bg-card rounded-xl border border-border p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-text-bright">
-                      {compMap.get(a.competitor_id) ?? 'Unknown'}
-                    </h3>
-                    <span className="text-xs text-text/40">{a.analysis_date}</span>
-                  </div>
-                  <p className="text-sm text-text/80 leading-relaxed mb-3">{a.summary}</p>
-                  {a.strategy_tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {a.strategy_tags.map(tag => (
-                        <span key={tag} className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-xs">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {a.top_ads.length > 0 && (
-                    <div className="space-y-1.5 pt-2 border-t border-border/50">
-                      <p className="text-xs text-text/50 uppercase tracking-wide">Top Ads</p>
-                      {a.top_ads.slice(0, 3).map((ad, i) => (
-                        <div
-                          key={ad.meta_ad_id}
-                          className={cn(
-                            'text-xs text-text/70 flex items-start gap-1.5',
-                            ad.ad_id ? 'cursor-pointer hover:text-accent' : ''
-                          )}
-                          onClick={ad.ad_id ? () => setSelectedAdId(ad.ad_id) : undefined}
-                        >
-                          <span className="text-accent/60 font-mono">{i + 1}.</span>
-                          <span>{ad.reason}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Signal feed */}
-      {isLoading ? (
-        <div className="text-text/50 py-12 text-center">Loading signals...</div>
-      ) : signals && signals.length > 0 ? (
-        <>
-          {totalSignals > signals.length && (
-            <p className="text-xs text-text/40 mb-3">
-              Showing {signals.length} of {totalSignals} signals — filter by competitor or type to narrow down
-            </p>
-          )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {signals.map(sig => (
-              <SignalCard
-                key={sig.id}
-                signal={sig}
-                competitorName={compMap.get(sig.competitor_id) ?? 'Unknown'}
-                onClick={sig.ad_id ? () => setSelectedAdId(sig.ad_id) : undefined}
+          <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
+            <Trophy size={16} className="text-success" />
+            Winner Spotlight
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {winners.map(w => (
+              <WinnerCard
+                key={w.ad_id}
+                winner={w}
+                onClick={() => setSelectedAdId(w.ad_id)}
               />
             ))}
           </div>
-        </>
-      ) : (
-        <div className="bg-bg-card rounded-xl border border-border p-8 text-center">
-          <Zap size={32} className="text-text/30 mx-auto mb-3" />
-          <p className="text-text/50">No signals in the last {days} days.</p>
-          <p className="text-sm text-text/40 mt-1">Trigger a scrape or wait for the daily run.</p>
         </div>
       )}
+
+      {winnersLoading && !winners && (
+        <div className="text-text/50 py-8 text-center text-sm">Loading winners...</div>
+      )}
+
+      {/* Detailed Signals (collapsed by default) */}
+      <div className="border-t border-border pt-6">
+        <button
+          onClick={() => setShowSignals(!showSignals)}
+          className="flex items-center gap-2 text-sm font-medium text-text/60 hover:text-text-bright transition-colors"
+        >
+          {showSignals ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          Detailed Signals ({totalSignals})
+        </button>
+
+        {showSignals && (
+          <div className="mt-4">
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-3 mb-6">
+              <select
+                value={filterCompetitor}
+                onChange={e => setFilterCompetitor(e.target.value)}
+                className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-bright"
+              >
+                <option value="">All Competitors</option>
+                {(competitors ?? []).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+
+              <select
+                value={filterType}
+                onChange={e => setFilterType(e.target.value)}
+                className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-bright"
+              >
+                <option value="">All Signals</option>
+                {Object.entries(SIGNAL_CONFIG).map(([key, { label }]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+
+              <div className="flex items-center gap-1">
+                {[7, 14, 30].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setDays(d)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-lg text-sm transition-colors',
+                      days === d
+                        ? 'bg-accent text-white'
+                        : 'bg-bg-card border border-border text-text hover:bg-bg-hover'
+                    )}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Signal feed */}
+            {signals && signals.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {signals.map(sig => (
+                  <SignalCard
+                    key={sig.id}
+                    signal={sig}
+                    competitorName={compMap.get(sig.competitor_id) ?? 'Unknown'}
+                    onClick={sig.ad_id ? () => setSelectedAdId(sig.ad_id) : undefined}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="bg-bg-card rounded-xl border border-border p-8 text-center">
+                <Zap size={32} className="text-text/30 mx-auto mb-3" />
+                <p className="text-text/50">No signals in the last {days} days.</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Scrape run history */}
       <ScrapeRunStrip runs={scrapeRuns ?? []} />

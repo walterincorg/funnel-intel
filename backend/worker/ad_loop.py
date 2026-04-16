@@ -6,12 +6,12 @@ then runs the full pipeline: Apify scrape -> upsert ads -> snapshot -> signals -
 
 from __future__ import annotations
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from backend.config import APIFY_API_TOKEN, AD_SCRAPE_HOUR_UTC, AD_SCRAPE_DAYS_OF_WEEK
 from backend.db import get_db
 from backend.worker.ad_scraper import scrape_competitor_ads, normalize_ad
-from backend.worker.ad_analysis import run_competitor_analysis
+from backend.worker.ad_analysis import run_briefing
 from backend.worker.ad_signals import compute_signals
 from backend.worker.alerts import send_alert
 
@@ -111,8 +111,6 @@ def _run_ad_scrape(today: date):
     total_ads = 0
     total_signals = 0
     competitors_scraped = 0
-    analyses_completed = 0
-    analyses_failed = 0
 
     try:
         # Get all competitors with ads_library_url
@@ -146,19 +144,29 @@ def _run_ad_scrape(today: date):
                 total_ads += ads_count
                 total_signals += signals_count
                 competitors_scraped += 1
-
-                # Run LLM analysis (isolated from scrape success)
-                try:
-                    if run_competitor_analysis(comp["id"], today):
-                        analyses_completed += 1
-                    else:
-                        analyses_failed += 1
-                except Exception:
-                    log.exception("Analysis failed for %s", comp["name"])
-                    analyses_failed += 1
             except Exception:
                 log.exception("Failed to scrape ads for %s", comp["name"])
                 send_alert(f"Ad scrape failed for {comp['name']}")
+
+        # Mark stale ads as INACTIVE — any ad not seen in 3+ days is likely dead
+        stale_cutoff = (today - timedelta(days=3)).isoformat()
+        stale_res = (
+            db.table("ads")
+            .update({"status": "INACTIVE"})
+            .eq("status", "ACTIVE")
+            .lt("last_seen_at", stale_cutoff)
+            .execute()
+        )
+        stale_count = len(stale_res.data) if stale_res.data else 0
+        if stale_count:
+            log.info("Marked %d stale ads as INACTIVE (not seen since %s)", stale_count, stale_cutoff)
+
+        # Generate cross-competitor CEO briefing (single LLM call)
+        briefing_ok = False
+        try:
+            briefing_ok = run_briefing(today)
+        except Exception:
+            log.exception("CEO briefing generation failed")
 
         db.table("ad_scrape_runs").update({
             "status": "completed",
@@ -166,14 +174,14 @@ def _run_ad_scrape(today: date):
             "competitors_scraped": competitors_scraped,
             "ads_found": total_ads,
             "signals_generated": total_signals,
-            "analyses_completed": analyses_completed,
-            "analyses_failed": analyses_failed,
+            "analyses_completed": 1 if briefing_ok else 0,
+            "analyses_failed": 0 if briefing_ok else 1,
         }).eq("id", run_id).execute()
 
         log.info(
-            "Ad scrape completed: %d competitors, %d ads, %d signals, %d/%d analyses",
+            "Ad scrape completed: %d competitors, %d ads, %d signals, briefing=%s",
             competitors_scraped, total_ads, total_signals,
-            analyses_completed, analyses_completed + analyses_failed,
+            "ok" if briefing_ok else "failed",
         )
 
     except Exception as e:
@@ -217,15 +225,12 @@ def _scrape_one_competitor(
     for sig in signals:
         db.table("ad_signals").insert(sig).execute()
 
-    # 6. Alert on high-severity signals
-    high_signals = [s for s in signals if s["severity"] in ("high", "critical")]
-    if high_signals:
+    # 6. Alert only on winner ads and count spikes
+    alert_signals = [s for s in signals if s["signal_type"] in ("proven_winner", "count_spike")]
+    if alert_signals:
         lines = [f"Ad Intel — {name}:"]
-        for s in high_signals:
-            icon = {"new_ad": "NEW", "proven_winner": "WINNER", "count_spike": "SPIKE",
-                    "copy_change": "COPY", "failed_test": "FAIL"}.get(
-                s["signal_type"], "SIGNAL"
-            )
+        for s in alert_signals:
+            icon = "WINNER" if s["signal_type"] == "proven_winner" else "SPIKE"
             lines.append(f"  [{icon}] {s['title']}")
         send_alert("\n".join(lines))
 

@@ -210,7 +210,7 @@ def _check_count_spike(competitor_id: str, today_ads: list[dict], today: date) -
         return []
 
     avg = sum(by_date.values()) / len(by_date)
-    if avg > 0 and active_today > avg * 1.5:
+    if avg > 0 and active_today > avg * 2.0:
         return [{
             "competitor_id": competitor_id,
             "signal_type": "count_spike",

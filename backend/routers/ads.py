@@ -2,16 +2,18 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException
 from backend.db import get_db
-from backend.models import AdOut, AdSnapshotOut, AdSignalOut, AdScrapeRunOut, CompetitorAnalysisOut
+from backend.models import AdOut, AdSnapshotOut, AdSignalOut, AdScrapeRunOut, AdBriefingOut
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
 
 @router.get("", response_model=list[AdOut])
-def list_ads(competitor_id: str | None = None, limit: int = 100):
+def list_ads(competitor_id: str | None = None, status: str = "ACTIVE", limit: int = 100):
     q = get_db().table("ads").select("*").order("last_seen_at", desc=True).limit(limit)
     if competitor_id:
         q = q.eq("competitor_id", competitor_id)
+    if status != "ALL":
+        q = q.eq("status", status)
     return q.execute().data
 
 
@@ -56,35 +58,95 @@ def signals_summary(days: int = 7):
     return [{"signal_type": k, "count": v} for k, v in counts.items()]
 
 
-@router.get("/analysis", response_model=list[CompetitorAnalysisOut])
-def list_analyses(competitor_id: str | None = None):
-    """Get the latest LLM analysis per competitor."""
+@router.get("/briefing", response_model=AdBriefingOut | None)
+def get_briefing():
+    """Get the latest CEO ad briefing."""
     db = get_db()
     try:
-        q = (
-            db.table("competitor_analyses")
+        rows = (
+            db.table("ad_briefings")
             .select("*")
-            .order("analysis_date", desc=True)
+            .order("briefing_date", desc=True)
+            .limit(1)
+            .execute()
+            .data
         )
-        if competitor_id:
-            q = q.eq("competitor_id", competitor_id).limit(1)
-        else:
-            q = q.limit(200)
-
-        rows = q.execute().data
     except Exception:
-        # Table may not exist yet (migration not run)
+        return None
+
+    return rows[0] if rows else None
+
+
+@router.get("/winners", response_model=list[dict])
+def list_winners(limit: int = 10):
+    """Get top winner ads across all competitors, sorted by days active."""
+    db = get_db()
+    ads = (
+        db.table("ads")
+        .select("id, meta_ad_id, competitor_id, media_type, landing_page_url, status")
+        .eq("status", "ACTIVE")
+        .order("last_seen_at", desc=True)
+        .limit(200)
+        .execute()
+        .data
+    )
+    if not ads:
         return []
 
-    if not competitor_id:
-        seen = set()
-        deduped = []
-        for row in rows:
-            if row["competitor_id"] not in seen:
-                seen.add(row["competitor_id"])
-                deduped.append(row)
-        return deduped
-    return rows
+    # Get latest snapshot per ad for headline, body, image, start_date
+    ad_ids = [a["id"] for a in ads]
+    all_snaps = []
+    for i in range(0, len(ad_ids), 50):
+        batch = ad_ids[i:i + 50]
+        batch_res = (
+            db.table("ad_snapshots")
+            .select("ad_id, headline, body_text, image_url, video_url, start_date, cta")
+            .in_("ad_id", batch)
+            .order("captured_date", desc=True)
+            .execute()
+        )
+        all_snaps.extend(batch_res.data)
+
+    latest_snaps = {}
+    for snap in all_snaps:
+        if snap["ad_id"] not in latest_snaps:
+            latest_snaps[snap["ad_id"]] = snap
+
+    # Get competitor names
+    comps = db.table("competitors").select("id, name").execute().data
+    comp_names = {c["id"]: c["name"] for c in comps}
+
+    # Rank by days active
+    today = date.today()
+    ranked = []
+    for ad in ads:
+        snap = latest_snaps.get(ad["id"], {})
+        start = snap.get("start_date")
+        if not start:
+            continue
+        try:
+            days = (today - date.fromisoformat(str(start)[:10])).days
+        except (ValueError, TypeError):
+            continue
+        if days < 14:
+            continue
+        ranked.append({
+            "ad_id": ad["id"],
+            "meta_ad_id": ad["meta_ad_id"],
+            "competitor_id": ad["competitor_id"],
+            "competitor_name": comp_names.get(ad["competitor_id"], "Unknown"),
+            "media_type": ad.get("media_type"),
+            "headline": snap.get("headline"),
+            "body_text": (snap.get("body_text") or "")[:200],
+            "image_url": snap.get("image_url"),
+            "video_url": snap.get("video_url"),
+            "cta": snap.get("cta"),
+            "days_active": days,
+            "landing_page_url": ad.get("landing_page_url"),
+        })
+
+    ranked.sort(key=lambda x: x["days_active"], reverse=True)
+    return ranked[:limit]
 
 
 @router.get("/scrape-runs", response_model=list[AdScrapeRunOut])
