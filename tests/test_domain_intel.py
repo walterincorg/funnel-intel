@@ -1,6 +1,7 @@
 """Tests for GA + Pixel extraction regex patterns."""
 
-from backend.worker.domain_intel import extract_tracking_codes
+from unittest.mock import patch, MagicMock
+from backend.worker.domain_intel import extract_tracking_codes, _fetch_gtm_codes
 
 
 class TestExtractTrackingCodes:
@@ -64,3 +65,48 @@ class TestExtractTrackingCodes:
         codes = extract_tracking_codes(html, "https://example.com")
         for code in codes:
             assert len(code.get("snippet", "")) <= 200
+
+    def test_extract_ga_from_script_src(self):
+        html = '<script src="https://www.googletagmanager.com/gtag/js?id=G-XYZ789"></script>'
+        codes = extract_tracking_codes(html, "https://example.com")
+        assert any(c["type"] == "google_analytics" and c["id"] == "G-XYZ789" for c in codes)
+
+    def test_extract_fb_pixel_from_noscript_img(self):
+        html = '<noscript><img src="https://www.facebook.com/tr?id=554433221100&ev=PageView" /></noscript>'
+        codes = extract_tracking_codes(html, "https://example.com")
+        assert any(c["type"] == "facebook_pixel" and c["id"] == "554433221100" for c in codes)
+
+
+class TestGTMFollowThrough:
+    @patch("backend.worker.domain_intel.requests.get")
+    def test_fetches_ga_from_gtm_container(self, mock_get):
+        """When page has GTM, fetch the container JS and extract GA IDs."""
+        container_js = 'var config = {"G-HIDDEN123": {"target": "G-HIDDEN123"}};'
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = container_js
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        html = '<script src="https://www.googletagmanager.com/gtm.js?id=GTM-ABC123"></script>'
+        codes = _fetch_gtm_codes(html)
+        assert any(c["type"] == "google_analytics" and c["id"] == "G-HIDDEN123" for c in codes)
+
+    @patch("backend.worker.domain_intel.requests.get")
+    def test_fetches_pixel_from_gtm_container(self, mock_get):
+        """When GTM container has fbq init, extract the pixel ID."""
+        container_js = """function(){fbq('init','998877665544')}"""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = container_js
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        html = '<script src="https://www.googletagmanager.com/gtm.js?id=GTM-XYZ789"></script>'
+        codes = _fetch_gtm_codes(html)
+        assert any(c["type"] == "facebook_pixel" and c["id"] == "998877665544" for c in codes)
+
+    def test_no_gtm_returns_empty(self):
+        html = "<html><body>No GTM here</body></html>"
+        codes = _fetch_gtm_codes(html)
+        assert codes == []
