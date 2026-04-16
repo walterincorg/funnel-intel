@@ -164,6 +164,11 @@ def _run_briefing(today: date) -> bool:
         log.info("No ads or signals to brief on, skipping")
         return False
 
+    log.info(
+        "Briefing input: %d winner ads across %d competitors, %d signals",
+        len(all_winner_ads), len(comp_names), sum(len(v) for v in signal_counts.values()),
+    )
+
     # Build the prompt
     ads_text = "\n".join(
         f"- [{a['meta_ad_id']}] {a['competitor']} | {a['media_type']} | "
@@ -192,6 +197,7 @@ def _run_briefing(today: date) -> bool:
         f"Use the save_briefing tool."
     )
 
+    log.info("Calling %s for CEO briefing...", ANALYSIS_MODEL)
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     response = client.messages.create(
         model=ANALYSIS_MODEL,
@@ -199,6 +205,7 @@ def _run_briefing(today: date) -> bool:
         tools=[BRIEFING_TOOL],
         messages=[{"role": "user", "content": prompt}],
     )
+    log.info("LLM response: %d content blocks, stop_reason=%s", len(response.content), response.stop_reason)
 
     tool_input = None
     for block in response.content:
