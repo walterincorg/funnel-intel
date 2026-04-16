@@ -83,8 +83,8 @@ def get_briefing():
 def list_winners(limit: int = 10, period: str = "all-time"):
     """Get top winner ads across all competitors.
 
-    period=all-time: proven winners running 14+ days, sorted by longest-running.
-    period=recent: ads started within the last 30 days, sorted by days active.
+    period=all-time: all active ads sorted by longest-running.
+    period=recent: ads running 30+ days and still active.
     """
     db = get_db()
     ads = (
@@ -123,7 +123,7 @@ def list_winners(limit: int = 10, period: str = "all-time"):
     comp_names = {c["id"]: c["name"] for c in comps}
 
     today = date.today()
-    cutoff_30d = today - timedelta(days=30)
+    min_days = 30 if period == "recent" else 0
     ranked = []
     for ad in ads:
         snap = latest_snaps.get(ad["id"], {})
@@ -131,17 +131,12 @@ def list_winners(limit: int = 10, period: str = "all-time"):
         if not start:
             continue
         try:
-            start_date = date.fromisoformat(str(start)[:10])
-            days = (today - start_date).days
+            days = (today - date.fromisoformat(str(start)[:10])).days
         except (ValueError, TypeError):
             continue
 
-        if period == "recent":
-            if start_date < cutoff_30d or days < 1:
-                continue
-        else:
-            if days < 14:
-                continue
+        if days < min_days:
+            continue
 
         ranked.append({
             "ad_id": ad["id"],
