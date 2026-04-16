@@ -130,10 +130,14 @@ EVAL_TOOL = {
                 "type": "string",
                 "enum": ["none", "minor", "major"],
                 "description": (
-                    "'none' if nothing meaningful changed (cosmetic rewording, A/B test "
-                    "variations, step reordering are NOT meaningful). 'minor' for small real "
-                    "changes. 'major' for significant changes like genuinely new questions, "
-                    "removed questions, or pricing changes."
+                    "'none' if nothing meaningful changed. 'minor' for small real changes. "
+                    "'major' ONLY for: (a) actual pricing changes, or (b) a completely new "
+                    "CATEGORY of information being collected (e.g. medical questions added "
+                    "when none existed before). A/B test funnels routinely add, remove, "
+                    "reorder, and reword questions within the SAME topic areas — that is "
+                    "NOT major. Option text swaps, questions appearing/disappearing about "
+                    "the same topics (goals, motivation, confidence, demographics), and "
+                    "cosmetic rewording are all 'none' or at most 'minor'."
                 ),
             },
             "pricing_changed": {
@@ -152,10 +156,14 @@ EVAL_TOOL = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Short descriptions of changes that warrant an alert. Only include: "
-                    "genuine pricing changes OR genuinely new questions that were not present "
-                    "before in any form. Exclude cosmetic rewording, A/B test variations, "
-                    "and reordered steps."
+                    "Short descriptions of changes that warrant a Telegram alert. "
+                    "VERY strict — only include: (a) pricing amounts actually went up or "
+                    "down, or (b) a completely new CATEGORY of information is being "
+                    "collected that was never asked before in any form (e.g. medical "
+                    "history, payment info). Questions about the same topic areas "
+                    "(goals, confidence, motivation, demographics) being added, removed, "
+                    "reworded, or having options swapped are A/B testing — NEVER alert on "
+                    "those. When in doubt, do NOT alert. Empty array is fine."
                 ),
             },
             "changes": {
@@ -169,8 +177,10 @@ EVAL_TOOL = {
                             "type": "string",
                             "enum": ["high", "medium", "low", "none"],
                             "description": (
-                                "'high' only for genuine pricing changes or genuinely new "
-                                "questions. 'low' for cosmetic, rewords, A/B tests. "
+                                "'high' ONLY for genuine pricing changes or a completely "
+                                "new category of data collection. 'low' for everything "
+                                "else (A/B tests, rewords, option swaps, questions "
+                                "added/removed within same topic areas). "
                                 "'none' to suppress a false positive."
                             ),
                         },
@@ -223,30 +233,44 @@ def _build_eval_prompt(
         "## Pricing\n"
         f"BASELINE PRICING:\n{bl_pricing_json}\n\n"
         f"LATEST PRICING:\n{lt_pricing_json}\n\n"
+        "## Important context\n"
+        "These funnels are heavily A/B tested. Between any two scans, it is NORMAL to see:\n"
+        "- Questions added, removed, or reordered\n"
+        "- Option text swapped ('Get toned' vs 'Maintain weight and get fit')\n"
+        "- Questions reworded ('How old are you?' vs 'What is your age?')\n"
+        "- Questions about the same topic replaced (confidence vs motivation)\n"
+        "All of the above are A/B test variations, NOT real funnel changes.\n\n"
+        "A REAL change is:\n"
+        "- Pricing amounts actually going up or down\n"
+        "- A completely new CATEGORY of information being collected that was never "
+        "asked about before (e.g. medical history, payment details, employer info)\n\n"
         "## Your task\n"
         "Evaluate everything together and decide:\n\n"
-        "1. **drift_level**: 'none' if nothing meaningful changed (cosmetic rewording, A/B test "
-        "variations, and step reordering are NOT meaningful). 'minor' for small real changes. "
-        "'major' for significant changes like genuinely new questions, removed questions, or "
-        "pricing changes.\n\n"
-        "2. **pricing_changed**: true ONLY if actual prices, plan lineup, or discount terms "
-        "genuinely changed. Format differences ('$29.99' vs '29.99'), whitespace, and currency "
-        "symbol presence are NOT changes. If one side is null (not captured), that alone is not "
-        "a pricing change.\n\n"
+        "1. **drift_level**:\n"
+        "   - 'none': A/B test variations only (option swaps, rewords, questions "
+        "added/removed within same topic areas, reordering)\n"
+        "   - 'minor': small but real structural change\n"
+        "   - 'major': ONLY for pricing changes or a completely new category of "
+        "data collection\n\n"
+        "2. **pricing_changed**: true ONLY if actual price amounts, plan lineup, or "
+        "discount terms genuinely changed. Format differences ('$29.99' vs '29.99'), "
+        "whitespace, and currency symbol presence are NOT changes. If one side is null "
+        "(not captured), that alone is not a pricing change.\n\n"
         "3. **pricing_summary**: describe what changed, or 'No change'.\n\n"
-        "4. **alert_worthy_changes**: list ONLY changes that matter enough to send a notification. "
-        "This means: genuine pricing changes (price went up/down, plan added/removed) OR "
-        "genuinely new questions that weren't asked before in any form. Do NOT include: "
-        "cosmetic rewording, A/B test option variations, step reordering, or questions that "
-        "are just rephrased versions of existing ones.\n\n"
-        "5. **changes**: for each alignment that represents a real change (skip SAME+SAME pairs), "
-        "assign a final_severity:\n"
-        "   - 'high': only for genuine pricing changes or genuinely new questions\n"
-        "   - 'low': for everything else (cosmetic, rewords, A/B tests, reordering)\n"
-        "   - 'none': if on reflection this is not a real change at all\n\n"
-        "6. **summary**: 2-3 sentence summary of what changed, written for a product manager. "
-        "Focus on what matters: new questions, removed questions, pricing changes. "
-        "If nothing meaningful changed, say so briefly.\n\n"
+        "4. **alert_worthy_changes**: VERY strict — only include:\n"
+        "   - Pricing amounts actually went up or down\n"
+        "   - A completely new CATEGORY of data collection never seen before\n"
+        "   Questions about goals, confidence, motivation, demographics being "
+        "added/removed/reworded are A/B testing — NEVER alert. Empty array is fine "
+        "and expected for most scans.\n\n"
+        "5. **changes**: for each alignment that represents a real change (skip "
+        "SAME+SAME pairs), assign a final_severity:\n"
+        "   - 'high': ONLY pricing changes or new data collection category\n"
+        "   - 'low': A/B tests, rewords, option swaps, topic-area changes\n"
+        "   - 'none': not a real change at all\n\n"
+        "6. **summary**: 2-3 sentence summary written for a product manager. "
+        "If it's just A/B testing noise, say so clearly and briefly. "
+        "Only highlight genuinely new developments.\n\n"
         "Use the save_evaluation tool."
     )
 
