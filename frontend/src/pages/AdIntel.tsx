@@ -436,7 +436,7 @@ export function AdIntel() {
           <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
             <Zap size={16} className="text-info" />
             Recent Winners
-            <span className="text-xs text-text/40 font-normal">started in last 30 days</span>
+            <span className="text-xs text-text/40 font-normal">running 30+ days</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {winnersRecent.map(w => (
