@@ -333,9 +333,14 @@ export function AdIntel() {
     queryFn: api.getBriefing,
   })
 
-  const { data: winners, isLoading: winnersLoading } = useQuery({
-    queryKey: ['ad-winners'],
-    queryFn: () => api.listWinners(6),
+  const { data: winnersAllTime, isLoading: winnersAllTimeLoading } = useQuery({
+    queryKey: ['ad-winners-alltime'],
+    queryFn: () => api.listWinners(6, 'all-time'),
+  })
+
+  const { data: winnersRecent, isLoading: winnersRecentLoading } = useQuery({
+    queryKey: ['ad-winners-recent'],
+    queryFn: () => api.listWinners(6, 'recent'),
   })
 
   const { data: signals } = useQuery({
@@ -426,15 +431,16 @@ export function AdIntel() {
       {/* CEO Briefing */}
       {briefing && <BriefingSection briefing={briefing} />}
 
-      {/* Winner Spotlight */}
-      {winners && winners.length > 0 && (
+      {/* Recent Winners (30d) */}
+      {winnersRecent && winnersRecent.length > 0 && (
         <div className="mb-8">
           <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
-            <Trophy size={16} className="text-success" />
-            Winner Spotlight
+            <Zap size={16} className="text-info" />
+            Recent Winners
+            <span className="text-xs text-text/40 font-normal">started in last 30 days</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {winners.map(w => (
+            {winnersRecent.map(w => (
               <WinnerCard
                 key={w.ad_id}
                 winner={w}
@@ -445,8 +451,32 @@ export function AdIntel() {
         </div>
       )}
 
-      {winnersLoading && !winners && (
-        <div className="text-text/50 py-8 text-center text-sm">Loading winners...</div>
+      {winnersRecentLoading && !winnersRecent && (
+        <div className="text-text/50 py-4 text-center text-sm">Loading recent winners...</div>
+      )}
+
+      {/* All-Time Winners */}
+      {winnersAllTime && winnersAllTime.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
+            <Trophy size={16} className="text-success" />
+            All-Time Winners
+            <span className="text-xs text-text/40 font-normal">running 14+ days</span>
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {winnersAllTime.map(w => (
+              <WinnerCard
+                key={w.ad_id}
+                winner={w}
+                onClick={() => setSelectedAdId(w.ad_id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {winnersAllTimeLoading && !winnersAllTime && (
+        <div className="text-text/50 py-4 text-center text-sm">Loading all-time winners...</div>
       )}
 
       {/* Detailed Signals (collapsed by default) */}

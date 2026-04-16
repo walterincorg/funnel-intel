@@ -311,8 +311,12 @@ export const api = {
     request<AdSignalSummary[]>(days ? `/ads/signals/summary?days=${days}` : '/ads/signals/summary'),
   listAdScrapeRuns: () => request<AdScrapeRun[]>('/ads/scrape-runs'),
   getBriefing: () => request<AdBriefing | null>('/ads/briefing'),
-  listWinners: (limit?: number) =>
-    request<WinnerAd[]>(limit ? `/ads/winners?limit=${limit}` : '/ads/winners'),
+  listWinners: (limit?: number, period?: 'all-time' | 'recent') => {
+    const qs = new URLSearchParams()
+    if (limit) qs.set('limit', String(limit))
+    if (period) qs.set('period', period)
+    return request<WinnerAd[]>(`/ads/winners?${qs}`)
+  },
   triggerAdScrape: () =>
     request<{ run_id: string; status: string }>('/ads/scrape/trigger', { method: 'POST' }),
 
