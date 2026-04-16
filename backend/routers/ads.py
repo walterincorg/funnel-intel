@@ -78,8 +78,12 @@ def get_briefing():
 
 
 @router.get("/winners", response_model=list[dict])
-def list_winners(limit: int = 10):
-    """Get top winner ads across all competitors, sorted by days active."""
+def list_winners(limit: int = 10, period: str = "all-time"):
+    """Get top winner ads across all competitors.
+
+    period=all-time: proven winners running 14+ days, sorted by longest-running.
+    period=recent: ads started within the last 30 days, sorted by days active.
+    """
     db = get_db()
     ads = (
         db.table("ads")
@@ -93,7 +97,7 @@ def list_winners(limit: int = 10):
     if not ads:
         return []
 
-    # Get latest snapshot per ad for headline, body, image, start_date, stop_date
+    # Get latest snapshot per ad
     ad_ids = [a["id"] for a in ads]
     all_snaps = []
     for i in range(0, len(ad_ids), 50):
@@ -116,8 +120,8 @@ def list_winners(limit: int = 10):
     comps = db.table("competitors").select("id, name").execute().data
     comp_names = {c["id"]: c["name"] for c in comps}
 
-    # Rank by days active
     today = date.today()
+    cutoff_30d = today - timedelta(days=30)
     ranked = []
     for ad in ads:
         snap = latest_snaps.get(ad["id"], {})
@@ -125,11 +129,18 @@ def list_winners(limit: int = 10):
         if not start:
             continue
         try:
-            days = (today - date.fromisoformat(str(start)[:10])).days
+            start_date = date.fromisoformat(str(start)[:10])
+            days = (today - start_date).days
         except (ValueError, TypeError):
             continue
-        if days < 14:
-            continue
+
+        if period == "recent":
+            if start_date < cutoff_30d or days < 1:
+                continue
+        else:
+            if days < 14:
+                continue
+
         ranked.append({
             "ad_id": ad["id"],
             "meta_ad_id": ad["meta_ad_id"],
