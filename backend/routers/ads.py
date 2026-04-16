@@ -135,10 +135,11 @@ def list_winners(limit: int = 10, period: str = "all-time"):
             continue
 
         if period == "recent":
-            if days < 30 or days > 90:
+            if days < 20 or days > 40:
                 continue
-        elif days < 1:
-            continue
+        else:
+            if days < 90 or days > 250:
+                continue
 
         ranked.append({
             "ad_id": ad["id"],

@@ -437,7 +437,7 @@ export function AdIntel() {
           <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
             <Zap size={16} className="text-info" />
             Recent Winners
-            <span className="text-xs text-text/40 font-normal">proven in last 30–90 days</span>
+            <span className="text-xs text-text/40 font-normal">active 20–40 days</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {winnersRecent.map(w => (
@@ -461,7 +461,7 @@ export function AdIntel() {
           <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
             <Trophy size={16} className="text-success" />
             All-Time Winners
-            <span className="text-xs text-text/40 font-normal">running 14+ days</span>
+            <span className="text-xs text-text/40 font-normal">active 90–250 days</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {winnersAllTime.map(w => (
