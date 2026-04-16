@@ -1,6 +1,9 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from backend.db import get_db
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/compare", tags=["compare"])
 
 

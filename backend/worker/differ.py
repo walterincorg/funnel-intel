@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -282,6 +283,9 @@ def diff_runs(baseline_steps: list[dict], new_steps: list[dict],
 
     if baseline_steps and new_steps:
         prompt = _build_diff_prompt(baseline_steps, new_steps)
+        log.info("Running semantic diff: %d baseline vs %d new steps via %s",
+                 len(baseline_steps), len(new_steps), DIFF_MODEL)
+        diff_start = time.perf_counter()
         client = anthropic.Anthropic(api_key=_API_KEY)
         response = client.messages.create(
             model=DIFF_MODEL,
@@ -290,6 +294,9 @@ def diff_runs(baseline_steps: list[dict], new_steps: list[dict],
             tools=[DIFF_TOOL],
             messages=[{"role": "user", "content": prompt}],
         )
+        diff_duration_ms = (time.perf_counter() - diff_start) * 1000
+        log.info("Semantic diff completed in %.1fs", diff_duration_ms / 1000,
+                 extra={"duration_ms": round(diff_duration_ms)})
 
         tool_input = None
         for block in response.content:

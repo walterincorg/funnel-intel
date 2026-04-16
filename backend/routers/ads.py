@@ -1,9 +1,11 @@
+import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException
 from backend.db import get_db
 from backend.models import AdOut, AdSnapshotOut, AdSignalOut, AdScrapeRunOut, AdBriefingOut
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
 
@@ -182,6 +184,7 @@ def trigger_scrape():
         .execute()
         .data[0]
     )
+    log.info("Ad scrape triggered manually: run=%s", run["id"])
     return {"run_id": run["id"], "status": "pending"}
 
 

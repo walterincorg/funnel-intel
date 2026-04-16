@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from browser_use import Agent, Browser, BrowserProfile
@@ -115,6 +116,10 @@ async def run_traversal(
         prompt = build_traversal_prompt(
             competitor_name, funnel_url, config, available_files=available_file_paths,
         )
+
+    log.info("Starting traversal for %s (%s) — mode=%s",
+             competitor_name, funnel_url, "guided" if baseline_steps else "freeform")
+    traversal_start = time.perf_counter()
 
     headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
     browser = Browser(
@@ -256,6 +261,12 @@ async def run_traversal(
             "total_steps": len(steps),
             "stop_reason": "unknown",
         }
+
+    duration_ms = (time.perf_counter() - traversal_start) * 1000
+    log.info("Traversal complete for %s: %d steps, stop=%s, pricing=%s (%.1fs)",
+             competitor_name, len(steps), summary.get("stop_reason", "unknown"),
+             "yes" if pricing else "no", duration_ms / 1000,
+             extra={"step_count": len(steps), "duration_ms": round(duration_ms)})
 
     return {
         "steps": steps,

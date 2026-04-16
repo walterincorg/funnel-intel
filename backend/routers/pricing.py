@@ -1,7 +1,10 @@
+import logging
+
 from fastapi import APIRouter
 from backend.db import get_db
 from backend.models import PricingSnapshotOut
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pricing", tags=["pricing"])
 
 

@@ -1,8 +1,11 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from backend.db import get_db
 from backend.models import ScanRunOut, ScanStepOut, ScanTrigger
 from typing import Any
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/scans", tags=["scans"])
 
 
@@ -68,6 +71,7 @@ def trigger_scan(body: ScanTrigger):
         .execute()
     )
     if existing.data:
+        log.info("Scan trigger deduplicated for competitor %s (existing job %s)", body.competitor_id, existing.data[0]["id"])
         return {"job_id": existing.data[0]["id"], "status": existing.data[0]["status"]}
 
     res = (
@@ -75,4 +79,5 @@ def trigger_scan(body: ScanTrigger):
         .insert({"competitor_id": body.competitor_id, "priority": body.priority, "status": "pending"})
         .execute()
     )
+    log.info("Scan job enqueued: job=%s competitor=%s priority=%d", res.data[0]["id"], body.competitor_id, body.priority)
     return {"job_id": res.data[0]["id"], "status": "pending"}

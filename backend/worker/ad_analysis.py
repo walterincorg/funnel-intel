@@ -7,6 +7,7 @@ competitor moves, and a suggested action — across ALL competitors at once.
 from __future__ import annotations
 import logging
 import os
+import time
 from datetime import date, timedelta
 
 import anthropic
@@ -198,6 +199,7 @@ def _run_briefing(today: date) -> bool:
     )
 
     log.info("Calling %s for CEO briefing...", ANALYSIS_MODEL)
+    llm_start = time.perf_counter()
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     response = client.messages.create(
         model=ANALYSIS_MODEL,
@@ -205,7 +207,10 @@ def _run_briefing(today: date) -> bool:
         tools=[BRIEFING_TOOL],
         messages=[{"role": "user", "content": prompt}],
     )
-    log.info("LLM response: %d content blocks, stop_reason=%s", len(response.content), response.stop_reason)
+    llm_duration_ms = (time.perf_counter() - llm_start) * 1000
+    log.info("LLM response: %d content blocks, stop_reason=%s (%.1fs)",
+             len(response.content), response.stop_reason, llm_duration_ms / 1000,
+             extra={"duration_ms": round(llm_duration_ms)})
 
     tool_input = None
     for block in response.content:

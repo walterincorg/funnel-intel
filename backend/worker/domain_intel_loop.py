@@ -8,6 +8,7 @@ Weekly pipeline with three phases:
 
 from __future__ import annotations
 import logging
+import time
 from datetime import date, datetime, timezone
 
 from backend.config import DOMAIN_INTEL_DAY_OF_WEEK, DOMAIN_INTEL_HOUR_UTC
@@ -71,6 +72,7 @@ def maybe_run_domain_intel():
 
 def _run_domain_intel(today: date):
     """Execute the domain intelligence pipeline."""
+    pipeline_start = time.perf_counter()
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -143,9 +145,12 @@ def _run_domain_intel(today: date):
             "domains_discovered": domains_discovered,
         }).eq("id", run_id).execute()
 
+        duration_ms = (time.perf_counter() - pipeline_start) * 1000
         log.info(
-            "Domain intel completed: %d competitors, %d fingerprints, %d clusters, %d domains",
+            "Domain intel completed: %d competitors, %d fingerprints, %d clusters, %d domains (%.1fs)",
             competitors_scanned, total_fingerprints, clusters_found, domains_discovered,
+            duration_ms / 1000,
+            extra={"duration_ms": round(duration_ms)},
         )
 
         send_alert(

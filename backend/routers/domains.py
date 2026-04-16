@@ -1,5 +1,6 @@
 """Domain Intelligence API endpoints."""
 
+import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter
@@ -11,6 +12,7 @@ from backend.models import (
     DomainIntelRunOut,
 )
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/domains", tags=["domains"])
 
 
@@ -158,4 +160,5 @@ def trigger_scan():
         .data[0]
     )
 
+    log.info("Domain intel scan triggered manually: run=%s", run["id"])
     return {"run_id": run["id"], "status": "pending"}

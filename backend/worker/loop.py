@@ -14,7 +14,6 @@ from backend.worker.ad_loop import maybe_run_ad_scrape
 from backend.worker.domain_intel_loop import maybe_run_domain_intel
 
 log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 POLL_INTERVAL = 10  # seconds
 _shutdown = False
@@ -25,37 +24,38 @@ _shutdown = False
 WORKER_ID = os.getenv("WORKER_ID", "1")
 IS_PRIMARY = WORKER_ID == "1"
 
-# A row is considered stale only if it's older than this. Prevents a primary
-# restart from killing scans still running on sibling workers.
-STALE_AGE = timedelta(minutes=45)
+# Scans can take a long time (funnel crawls); ad scrapes are fast.
+STALE_AGE_SCANS = timedelta(minutes=45)
+STALE_AGE_AD_SCRAPES = timedelta(minutes=15)
 
 
 def cleanup_stale_jobs():
-    """Mark picked/running rows older than STALE_AGE as failed.
+    """Mark picked/running rows older than their stale threshold as failed.
 
-    Only the primary worker (WORKER_ID=1) runs this, and the age threshold
-    means scans still executing on sibling workers are never touched.
+    Only the primary worker (WORKER_ID=1) runs this, and the age thresholds
+    mean scans still executing on sibling workers are never touched.
     """
     db = get_db()
     now = datetime.now(timezone.utc)
-    cutoff = (now - STALE_AGE).isoformat()
+    scan_cutoff = (now - STALE_AGE_SCANS).isoformat()
+    scrape_cutoff = (now - STALE_AGE_AD_SCRAPES).isoformat()
     now_iso = now.isoformat()
 
     stale_runs = db.table("scan_runs").update({
         "status": "failed",
         "completed_at": now_iso,
         "summary": {"error": "Worker restarted — scan was interrupted"},
-    }).eq("status", "running").lt("started_at", cutoff).execute()
+    }).eq("status", "running").lt("started_at", scan_cutoff).execute()
 
     stale_jobs = db.table("scan_jobs").update({
         "status": "failed",
-    }).eq("status", "picked").lt("picked_at", cutoff).execute()
+    }).eq("status", "picked").lt("picked_at", scan_cutoff).execute()
 
     stale_scrapes = db.table("ad_scrape_runs").update({
         "status": "failed",
         "completed_at": now_iso,
         "error": "Worker restarted — scrape was interrupted",
-    }).in_("status", ["running", "pending"]).lt("started_at", cutoff).execute()
+    }).in_("status", ["running", "pending"]).lt("started_at", scrape_cutoff).execute()
 
     n_runs = len(stale_runs.data) if stale_runs.data else 0
     n_jobs = len(stale_jobs.data) if stale_jobs.data else 0
@@ -121,13 +121,15 @@ def get_baseline(competitor_id: str) -> tuple[dict | None, list[dict]]:
 
 
 def process_job(job: dict):
+    job_start = time.perf_counter()
     db = get_db()
     competitor_id = job["competitor_id"]
 
     # Fetch competitor
     comp = db.table("competitors").select("*").eq("id", competitor_id).single().execute().data
     if not comp:
-        log.error("Competitor %s not found, skipping job %s", competitor_id, job["id"])
+        log.error("Competitor %s not found, skipping job %s", competitor_id, job["id"],
+                  extra={"competitor_id": competitor_id, "job_id": job["id"]})
         db.table("scan_jobs").update({"status": "failed"}).eq("id", job["id"]).execute()
         return
 
@@ -140,7 +142,8 @@ def process_job(job: dict):
     }).execute().data[0]
 
     run_id = run["id"]
-    log.info("Starting scan %s for %s", run_id, comp["name"])
+    log.info("Starting scan %s for %s (job=%s)", run_id, comp["name"], job["id"],
+             extra={"run_id": run_id, "competitor_id": competitor_id, "job_id": job["id"]})
 
     # Check for baseline
     baseline_run, baseline_steps = get_baseline(competitor_id)
@@ -249,10 +252,18 @@ def process_job(job: dict):
 
         db.table("scan_runs").update(update_data).eq("id", run_id).execute()
         db.table("scan_jobs").update({"status": "done"}).eq("id", job["id"]).execute()
-        log.info("Scan %s completed: %d steps", run_id, len(result["steps"]))
+        duration_ms = (time.perf_counter() - job_start) * 1000
+        log.info("Scan %s completed: %d steps in %.1fs (drift=%s)",
+                 run_id, len(result["steps"]), duration_ms / 1000,
+                 update_data.get("drift_level", "n/a"),
+                 extra={"run_id": run_id, "competitor_id": competitor_id,
+                        "step_count": len(result["steps"]), "duration_ms": round(duration_ms)})
 
     except Exception as e:
-        log.exception("Scan %s failed", run_id)
+        duration_ms = (time.perf_counter() - job_start) * 1000
+        log.exception("Scan %s failed after %.1fs", run_id, duration_ms / 1000,
+                      extra={"run_id": run_id, "competitor_id": competitor_id,
+                             "duration_ms": round(duration_ms)})
         db.table("scan_runs").update({
             "status": "failed",
             "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -269,7 +280,8 @@ def has_pending_scan_job() -> bool:
 
 
 def main():
-    log.info("Worker %s started, polling every %ds (primary=%s)", WORKER_ID, POLL_INTERVAL, IS_PRIMARY)
+    log.info("Worker %s started, polling every %ds (primary=%s)", WORKER_ID, POLL_INTERVAL, IS_PRIMARY,
+             extra={"worker_id": WORKER_ID})
     if IS_PRIMARY:
         cleanup_stale_jobs()
     while not _shutdown:

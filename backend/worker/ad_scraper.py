@@ -24,6 +24,7 @@ def scrape_competitor_ads(ads_library_url: str) -> list[dict]:
     if not APIFY_API_TOKEN:
         raise RuntimeError("APIFY_API_TOKEN not configured")
 
+    scrape_start = time.perf_counter()
     actor_id = APIFY_ADS_ACTOR_ID.replace("/", "~")
     headers = {
         "Authorization": f"Bearer {APIFY_API_TOKEN}",
@@ -77,7 +78,10 @@ def scrape_competitor_ads(ads_library_url: str) -> list[dict]:
         log.warning("Unexpected Apify dataset response type: %s", type(items))
         return []
 
-    log.info("Apify returned %d ads for %s (run %s)", len(items), ads_library_url, run_id)
+    duration_ms = (time.perf_counter() - scrape_start) * 1000
+    log.info("Apify returned %d ads for %s (run %s, %.1fs)",
+             len(items), ads_library_url, run_id, duration_ms / 1000,
+             extra={"ad_count": len(items), "duration_ms": round(duration_ms)})
     return items
 
 

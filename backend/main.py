@@ -10,7 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import GIT_COMMIT
+from backend.logging_config import setup_logging
+from backend.middleware import RequestLoggingMiddleware
 from backend.routers import competitors, scans, pricing, compare, ads, domains
+
+# Initialize logging before anything else
+setup_logging()
 
 log = logging.getLogger(__name__)
 STARTUP_TIME = datetime.now(timezone.utc).isoformat()
@@ -29,13 +34,17 @@ def _worker_supervisor():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log.info("Funnel Intel starting up — commit=%s", GIT_COMMIT)
     t = threading.Thread(target=_worker_supervisor, daemon=True, name="worker")
     t.start()
+    log.info("Worker supervisor thread started")
     yield
+    log.info("Funnel Intel shutting down")
 
 
 app = FastAPI(title="Funnel Intel", version="0.1.0", lifespan=lifespan)
 
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

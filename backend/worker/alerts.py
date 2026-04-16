@@ -8,6 +8,7 @@ is. Failures are logged and swallowed so alerts never break the worker.
 import logging
 import os
 import subprocess
+import time
 
 from backend.config import OPENCLAW_ALERTS_CHANNEL, OPENCLAW_ALERTS_TARGET
 
@@ -58,4 +59,5 @@ def send_alert(message: str) -> bool:
         )
         return False
 
+    log.debug("Alert sent successfully via %s", OPENCLAW_ALERTS_CHANNEL)
     return True

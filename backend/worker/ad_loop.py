@@ -6,6 +6,7 @@ then runs the full pipeline: Apify scrape -> upsert ads -> snapshot -> signals -
 
 from __future__ import annotations
 import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 
 from backend.config import APIFY_API_TOKEN, AD_SCRAPE_HOUR_UTC, AD_SCRAPE_DAYS_OF_WEEK
@@ -53,6 +54,7 @@ def maybe_run_ad_scrape():
 
 def _run_ad_scrape(today: date):
     """Execute the full ad scrape pipeline for all competitors."""
+    pipeline_start = time.perf_counter()
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -147,10 +149,14 @@ def _run_ad_scrape(today: date):
             "analyses_failed": 0 if briefing_ok else 1,
         }).eq("id", run_id).execute()
 
+        duration_ms = (time.perf_counter() - pipeline_start) * 1000
         log.info(
-            "Ad scrape completed: %d competitors, %d ads, %d signals, briefing=%s",
+            "Ad scrape completed: %d competitors, %d ads, %d signals, briefing=%s (%.1fs)",
             competitors_scraped, total_ads, total_signals,
             "ok" if briefing_ok else "failed",
+            duration_ms / 1000,
+            extra={"ad_count": total_ads, "signal_count": total_signals,
+                   "duration_ms": round(duration_ms)},
         )
 
     except Exception as e:
