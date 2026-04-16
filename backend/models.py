@@ -208,6 +208,31 @@ class DomainIntelRunOut(BaseModel):
     created_at: datetime | None = None
 
 
+# --- App Settings ---
+
+class AppSettings(BaseModel):
+    funnel_scan_interval_minutes: int = 90
+    funnel_scan_enabled: bool = True
+    ad_scrape_enabled: bool = False
+    ad_scrape_hour_utc: int = 6
+    ad_scrape_days_of_week: list[int] = [0, 3]
+    domain_intel_enabled: bool = True
+    domain_intel_day_of_week: int = 1
+    domain_intel_hour_utc: int = 7
+    updated_at: datetime | None = None
+
+
+class AppSettingsUpdate(BaseModel):
+    funnel_scan_interval_minutes: int | None = None
+    funnel_scan_enabled: bool | None = None
+    ad_scrape_enabled: bool | None = None
+    ad_scrape_hour_utc: int | None = None
+    ad_scrape_days_of_week: list[int] | None = None
+    domain_intel_enabled: bool | None = None
+    domain_intel_day_of_week: int | None = None
+    domain_intel_hour_utc: int | None = None
+
+
 # --- Version ---
 
 class VersionOut(BaseModel):

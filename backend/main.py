@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import GIT_COMMIT
 from backend.logging_config import setup_logging
 from backend.middleware import RequestLoggingMiddleware
-from backend.routers import competitors, scans, pricing, compare, ads, domains
+from backend.routers import competitors, scans, pricing, compare, ads, domains, settings
 
 # Initialize logging before anything else
 setup_logging()
@@ -58,6 +58,7 @@ app.include_router(pricing.router)
 app.include_router(compare.router)
 app.include_router(ads.router)
 app.include_router(domains.router)
+app.include_router(settings.router)
 
 
 @app.get("/api/health")

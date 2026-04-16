@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, ScanSearch, DollarSign, Megaphone, Globe, Menu, X, ChevronDown } from 'lucide-react'
+import { LayoutDashboard, Users, ScanSearch, DollarSign, Megaphone, Globe, Menu, X, ChevronDown, Settings } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -15,7 +15,6 @@ const groups: NavGroup[] = [
     icon: DollarSign,
     children: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/competitor-scans', icon: ScanSearch, label: 'Scans' },
       { to: '/pricing', icon: DollarSign, label: 'Pricing' },
     ],
   },
@@ -30,6 +29,7 @@ const groups: NavGroup[] = [
 ]
 
 const standaloneLinks = [
+  { to: '/settings', icon: Settings, label: 'Settings' },
   { to: '/competitors/manage', icon: Users, label: 'Manage Competitors' },
 ]
 

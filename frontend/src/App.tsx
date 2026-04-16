@@ -10,6 +10,7 @@ import { Pricing } from '@/pages/Pricing'
 import { Compare } from '@/pages/Compare'
 import { AdIntel } from '@/pages/AdIntel'
 import { DomainIntel } from '@/pages/DomainIntel'
+import { Settings } from '@/pages/Settings'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,8 +29,7 @@ export default function App() {
         <Routes>
           <Route element={<Shell />}>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/competitor-scans" element={<Competitors />} />
-            <Route path="/competitors" element={<Navigate to="/competitor-scans" replace />} />
+            <Route path="/competitors" element={<Competitors />} />
             <Route path="/competitors/manage" element={<CompetitorManagement />} />
             <Route path="/competitors/:id" element={<CompetitorDetail />} />
             <Route path="/scans/:id" element={<ScanDetail />} />
@@ -37,6 +37,7 @@ export default function App() {
             <Route path="/compare" element={<Compare />} />
             <Route path="/ad-intel" element={<AdIntel />} />
             <Route path="/domain-intel" element={<DomainIntel />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
         </Routes>
       </BrowserRouter>

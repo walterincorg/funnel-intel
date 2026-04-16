@@ -13,8 +13,8 @@ from datetime import date, datetime, timezone
 
 from urllib.parse import urlparse
 
-from backend.config import DOMAIN_INTEL_DAY_OF_WEEK, DOMAIN_INTEL_HOUR_UTC
 from backend.db import get_db
+from backend.settings import get_settings
 from backend.worker.domain_intel import run_fingerprint_extraction
 from backend.worker.domain_clustering import compute_clusters
 from backend.worker.domain_monitor import poll_new_domains
@@ -41,10 +41,14 @@ def maybe_run_domain_intel():
         _run_domain_intel(today)
         return
 
-    if today.weekday() != DOMAIN_INTEL_DAY_OF_WEEK:
+    settings = get_settings()
+    if not settings.get("domain_intel_enabled", True):
         return
 
-    if now.hour < DOMAIN_INTEL_HOUR_UTC:
+    if today.weekday() != settings.get("domain_intel_day_of_week", 1):
+        return
+
+    if now.hour < settings.get("domain_intel_hour_utc", 7):
         return
 
     existing = (

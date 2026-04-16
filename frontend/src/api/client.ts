@@ -248,6 +248,18 @@ export interface DomainStats {
   shared_codes: number
 }
 
+export interface AppSettings {
+  funnel_scan_interval_minutes: number
+  funnel_scan_enabled: boolean
+  ad_scrape_enabled: boolean
+  ad_scrape_hour_utc: number
+  ad_scrape_days_of_week: number[]
+  domain_intel_enabled: boolean
+  domain_intel_day_of_week: number
+  domain_intel_hour_utc: number
+  updated_at: string | null
+}
+
 export interface ScanJob {
   id: string
   competitor_id: string
@@ -337,6 +349,11 @@ export const api = {
   domainRuns: () => request<DomainIntelRun[]>('/domains/runs'),
   triggerDomainScan: () =>
     request<{ run_id: string; status: string }>('/domains/scan', { method: 'POST' }),
+
+  // Settings
+  getSettings: () => request<AppSettings>('/settings'),
+  updateSettings: (data: Partial<AppSettings>) =>
+    request<AppSettings>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
 
   // System
   version: () => request<Version>('/version'),

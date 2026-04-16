@@ -10,19 +10,24 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime, timedelta, timezone
 
 from backend.db import get_db
-
-SCAN_INTERVAL_MINUTES = int(os.getenv("SCAN_INTERVAL_MINUTES", "90"))
+from backend.settings import get_settings
 
 
 def main() -> int:
     db = get_db()
+    settings = get_settings()
+
+    if not settings.get("funnel_scan_enabled", True):
+        print("Funnel scans disabled in settings")
+        return 0
+
+    interval = settings.get("funnel_scan_interval_minutes", 90)
     now = datetime.now(timezone.utc)
-    cutoff = (now - timedelta(minutes=SCAN_INTERVAL_MINUTES)).isoformat()
+    cutoff = (now - timedelta(minutes=interval)).isoformat()
 
     competitors = db.table("competitors").select("id,name").execute().data
     enqueued = 0
@@ -69,7 +74,7 @@ def main() -> int:
     print(
         f"enqueued={enqueued} skipped_pending={skipped_pending} "
         f"skipped_recent={skipped_recent} total={len(competitors)} "
-        f"cadence_min={SCAN_INTERVAL_MINUTES}"
+        f"cadence_min={interval}"
     )
     return 0
 

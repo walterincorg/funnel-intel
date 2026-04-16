@@ -9,8 +9,9 @@ import logging
 import time
 from datetime import date, datetime, timedelta, timezone
 
-from backend.config import APIFY_API_TOKEN, AD_SCRAPE_HOUR_UTC, AD_SCRAPE_DAYS_OF_WEEK
+from backend.config import APIFY_API_TOKEN
 from backend.db import get_db
+from backend.settings import get_settings
 from backend.worker.ad_scraper import scrape_competitor_ads, normalize_ad
 from backend.worker.ad_analysis import run_briefing
 from backend.worker.ad_signals import compute_signals
@@ -48,8 +49,32 @@ def maybe_run_ad_scrape():
         _run_ad_scrape(today)
         return
 
-    # Auto-schedule disabled — only scrape when manually triggered via "Scrape Now"
-    return
+    # Auto-schedule — gated by DB setting (default: disabled)
+    settings = get_settings()
+    if not settings.get("ad_scrape_enabled", False):
+        return
+
+    scrape_hour = settings.get("ad_scrape_hour_utc", 6)
+    scrape_days = set(settings.get("ad_scrape_days_of_week", [0, 3]))
+
+    if today.weekday() not in scrape_days:
+        return
+    if now.hour < scrape_hour:
+        return
+
+    existing = (
+        db.table("ad_scrape_runs")
+        .select("id")
+        .gte("created_at", today.isoformat())
+        .in_("status", ["running", "completed"])
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return
+
+    log.info("Starting scheduled ad scrape for %s", today)
+    _run_ad_scrape(today)
 
 
 def _run_ad_scrape(today: date):
