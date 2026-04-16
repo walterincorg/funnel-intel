@@ -123,7 +123,7 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
                 {(ad?.first_seen_at || snap?.start_date) && (
                   <p className="text-xs text-text/50">
                     {snap?.start_date
-                      ? `Running since ${snap.start_date}${snap.stop_date ? ` · ended ${snap.stop_date}` : ''}`
+                      ? `Running since ${snap.start_date}${ad?.status !== 'ACTIVE' && snap.stop_date ? ` · ended ${snap.stop_date}` : ''}`
                       : `First seen ${ad!.first_seen_at!.slice(0, 10)}`
                     }
                   </p>
@@ -437,7 +437,7 @@ export function AdIntel() {
           <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
             <Zap size={16} className="text-info" />
             Recent Winners
-            <span className="text-xs text-text/40 font-normal">running 30+ days</span>
+            <span className="text-xs text-text/40 font-normal">proven in last 30–90 days</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {winnersRecent.map(w => (

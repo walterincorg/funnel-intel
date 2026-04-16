@@ -84,7 +84,7 @@ def list_winners(limit: int = 10, period: str = "all-time"):
     """Get top winner ads across all competitors.
 
     period=all-time: all active ads sorted by longest-running.
-    period=recent: ads running 30+ days and still active.
+    period=recent: ads started 30-90 days ago and still active (recently proven).
     """
     db = get_db()
     ads = (
@@ -123,7 +123,6 @@ def list_winners(limit: int = 10, period: str = "all-time"):
     comp_names = {c["id"]: c["name"] for c in comps}
 
     today = date.today()
-    min_days = 30 if period == "recent" else 0
     ranked = []
     for ad in ads:
         snap = latest_snaps.get(ad["id"], {})
@@ -135,7 +134,10 @@ def list_winners(limit: int = 10, period: str = "all-time"):
         except (ValueError, TypeError):
             continue
 
-        if days < min_days:
+        if period == "recent":
+            if days < 30 or days > 90:
+                continue
+        elif days < 1:
             continue
 
         ranked.append({
