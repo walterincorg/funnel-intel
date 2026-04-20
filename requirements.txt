@@ -1,7 +1,5 @@
-browser-use
-langchain-anthropic
-langchain-openai
-langchain-ollama
+stagehand>=3.19.0
+playwright>=1.49.0
 python-dotenv
 fastapi
 uvicorn[standard]

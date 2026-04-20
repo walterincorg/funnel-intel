@@ -145,9 +145,9 @@ def process_job(job: dict):
     log.info("Starting scan %s for %s (job=%s)", run_id, comp["name"], job["id"],
              extra={"run_id": run_id, "competitor_id": competitor_id, "job_id": job["id"]})
 
-    # Check for baseline
+    # Baseline is still used for diffing, but no longer drives traversal —
+    # Stagehand's recipe/replay system replaces the old guided-prompt flow.
     baseline_run, baseline_steps = get_baseline(competitor_id)
-    baseline_steps_data = baseline_steps if baseline_steps else None
 
     # Progress callback — appends log entries to the DB in real-time
     _progress_log_buffer = []
@@ -166,9 +166,10 @@ def process_job(job: dict):
             competitor_name=comp["name"],
             funnel_url=comp["funnel_url"],
             config=comp.get("config"),
-            baseline_steps=baseline_steps_data,
             on_progress=_on_progress,
             competitor_slug=comp.get("slug"),
+            competitor_id=competitor_id,
+            run_id=run_id,
         )
 
         # Deduplicate steps — keep last occurrence per step_number (most complete)
