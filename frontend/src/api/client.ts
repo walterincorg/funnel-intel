@@ -302,6 +302,8 @@ export const api = {
   listPricing: (competitorId?: string) =>
     request<PricingSnapshot[]>(competitorId ? `/pricing?competitor_id=${competitorId}` : '/pricing'),
   latestPricing: () => request<PricingSnapshot[]>('/pricing/latest'),
+  listPricingAll: (competitorId?: string) =>
+    request<PricingSnapshot[]>(competitorId ? `/pricing?competitor_id=${competitorId}&limit=500` : '/pricing?limit=500'),
 
   // Compare
   compareRuns: (runAId: string, runBId: string) =>
