@@ -1,0 +1,12 @@
+# Supabase project config.
+#
+# Read by the Supabase GitHub integration to know which project this repo
+# maps to and which migrations to replay on preview branches. We only use
+# the hosted Supabase cloud — no local `supabase start` dev stack — so this
+# file is intentionally minimal.
+
+project_id = "funnel-intel"
+
+[db]
+# Match the major Postgres version Supabase runs in the hosted project.
+major_version = 15
