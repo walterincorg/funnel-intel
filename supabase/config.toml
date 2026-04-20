@@ -10,10 +10,3 @@ project_id = "funnel-intel"
 [db]
 # Match the major Postgres version Supabase runs in the hosted project.
 major_version = 15
-
-[db.migrations]
-# All historical migrations were applied manually before this directory
-# existed. Mark them as applied on the prod DB once via:
-#   supabase migration repair --status applied <version>
-# (see README / CLAUDE.md for the one-time checklist).
-schema_paths = []
