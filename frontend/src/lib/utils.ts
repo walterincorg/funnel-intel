@@ -21,9 +21,12 @@ export function checkActive(lastDetected: string | null): boolean {
   if (lastDetected.toLowerCase().includes('current')) return true
   const d = new Date(lastDetected)
   if (isNaN(d.getTime())) return false
-  const monthAgo = new Date()
-  monthAgo.setMonth(monthAgo.getMonth() - 1)
-  return d >= monthAgo
+  // BuiltWith reports month-granular dates ("Mar 2026") which parse to the 1st
+  // of that month, AND they don't re-crawl every site each week. Using a 3-month
+  // window matches their data cadence without losing genuinely dead relationships.
+  const cutoff = new Date()
+  cutoff.setMonth(cutoff.getMonth() - 3)
+  return d >= cutoff
 }
 
 export function getPrevRunCutoff(runs: DomainIntelRun[]): string | null {

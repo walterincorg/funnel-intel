@@ -275,7 +275,7 @@ function ClusterCard({
 
 export function DomainIntel() {
   const queryClient = useQueryClient()
-  const [activeOnly, setActiveOnly] = useState(true)
+  const [activeOnly, setActiveOnly] = useState(false)
 
   const { data: runs } = useQuery({
     queryKey: ['domain-runs'],
