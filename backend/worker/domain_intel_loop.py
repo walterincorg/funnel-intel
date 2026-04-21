@@ -140,7 +140,9 @@ def _run_domain_intel(today: date):
                     log.debug("BuiltWith [%d/%d] %s upserted %d rows in %.1fs",
                               i, len(bw_competitors), domain, len(rows), upsert_elapsed)
                 relationships_scraped += len(rows)
-                time.sleep(2.5)
+                # Inter-domain delay — BuiltWith rate-limits datacenter IPs
+                # aggressively. Anything under ~10s gets the VPS temp-banned.
+                time.sleep(15)
             except Exception:
                 scrape_elapsed = time.perf_counter() - comp_start
                 log.exception("BuiltWith [%d/%d] scrape failed for %s after %.1fs",
