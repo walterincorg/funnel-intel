@@ -18,6 +18,7 @@ from backend.settings import get_settings
 from backend.worker.domain_intel import run_fingerprint_extraction
 from backend.worker.domain_clustering import compute_clusters
 from backend.worker.domain_monitor import poll_new_domains
+from backend.worker.builtwith_scraper import scrape_relationships
 from backend.worker.alerts import send_alert
 
 log = logging.getLogger(__name__)
@@ -147,6 +148,30 @@ def _run_domain_intel(today: date):
         except Exception:
             log.exception("Domain monitoring failed")
 
+        # Phase 4: BuiltWith relationship scraping
+        relationships_scraped = 0
+        for comp in comps:
+            if not comp.get("funnel_url"):
+                continue
+            domain = urlparse(comp["funnel_url"]).netloc
+            try:
+                rows = scrape_relationships(domain)
+                for row in rows:
+                    db.table("builtwith_relationships").upsert({
+                        "competitor_id": comp["id"],
+                        "source_domain": domain,
+                        "related_domain": row["domain"],
+                        "attribute_value": row["attributeValue"],
+                        "first_detected": row["firstDetected"],
+                        "last_detected": row["lastDetected"],
+                        "overlap_duration": row["overlapDuration"],
+                        "scraped_at": datetime.now(timezone.utc).isoformat(),
+                    }, on_conflict="competitor_id,related_domain,attribute_value").execute()
+                relationships_scraped += len(rows)
+                time.sleep(2.5)
+            except Exception:
+                log.exception("BuiltWith scrape failed for %s", domain)
+
         db.table("domain_intel_runs").update({
             "status": "completed",
             "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -158,9 +183,9 @@ def _run_domain_intel(today: date):
 
         duration_ms = (time.perf_counter() - pipeline_start) * 1000
         log.info(
-            "Domain intel completed: %d competitors, %d fingerprints, %d clusters, %d domains (%.1fs)",
+            "Domain intel completed: %d competitors, %d fingerprints, %d clusters, %d domains, %d bw-relationships (%.1fs)",
             competitors_scanned, total_fingerprints, clusters_found, domains_discovered,
-            duration_ms / 1000,
+            relationships_scraped, duration_ms / 1000,
             extra={"duration_ms": round(duration_ms)},
         )
 

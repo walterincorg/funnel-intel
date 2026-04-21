@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter
 from backend.db import get_db
 from backend.models import (
+    BuiltWithRelationshipOut,
     DomainFingerprintOut,
     OperatorClusterOut,
     DiscoveredDomainOut,
@@ -142,6 +143,21 @@ def domain_stats():
         "new_domains_7d": new_domains_count,
         "shared_codes": shared_codes,
     }
+
+
+@router.get("/relationships", response_model=list[BuiltWithRelationshipOut])
+def list_relationships(competitor_id: str | None = None, limit: int = 200):
+    """Get BuiltWith relationship rows, optionally filtered by competitor."""
+    q = (
+        get_db()
+        .table("builtwith_relationships")
+        .select("*")
+        .order("scraped_at", desc=True)
+        .limit(limit)
+    )
+    if competitor_id:
+        q = q.eq("competitor_id", competitor_id)
+    return q.execute().data
 
 
 @router.post("/scan", status_code=202)
