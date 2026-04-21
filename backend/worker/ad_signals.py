@@ -54,16 +54,29 @@ def compute_signals(
         )
         existing_map = {row["meta_ad_id"]: row["id"] for row in existing_res.data}
 
-    # Load yesterday's snapshots for diff
-    yesterday = today - timedelta(days=1)
-    yesterday_res = (
+    # Load previous scrape's snapshots for diff — use last captured date, not hardcoded yesterday
+    prev_date_res = (
         db.table("ad_snapshots")
-        .select("ad_id, headline, body_text, start_date")
+        .select("captured_date")
         .eq("competitor_id", competitor_id)
-        .eq("captured_date", yesterday.isoformat())
+        .lt("captured_date", today.isoformat())
+        .order("captured_date", desc=True)
+        .limit(1)
         .execute()
     )
-    yesterday_map = {row["ad_id"]: row for row in yesterday_res.data}
+    prev_date = prev_date_res.data[0]["captured_date"] if prev_date_res.data else None
+
+    if prev_date:
+        prev_res = (
+            db.table("ad_snapshots")
+            .select("ad_id, headline, body_text, start_date")
+            .eq("competitor_id", competitor_id)
+            .eq("captured_date", prev_date)
+            .execute()
+        )
+        yesterday_map = {row["ad_id"]: row for row in prev_res.data}
+    else:
+        yesterday_map = {}
 
     # Load existing proven_winner signals to avoid duplicates
     existing_winners_res = (
@@ -114,7 +127,7 @@ def compute_signals(
             and ad_db_id not in existing_winner_ad_ids
         ):
             days = _days_active(ad["start_date"], today)
-            if days is not None and days >= 30:
+            if days is not None and days >= 7:
                 signals.append({
                     "competitor_id": competitor_id,
                     "ad_id": ad_db_id,
