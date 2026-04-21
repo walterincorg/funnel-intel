@@ -191,11 +191,20 @@ function PriceChart({ snapshots, changedIndices }: { snapshots: PricingSnapshot[
   const step = Math.max(1, Math.floor(snapshots.length / 4))
   for (let i = step; i < snapshots.length - 1; i += step) labelIndices.add(i)
 
-  // Count how many times each date appears to decide date vs time labels
-  const dateCounts = new Map<string, number>()
-  for (let i = 0; i < snapshots.length; i++) {
-    const d = new Date(snapshots[i].created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1)
+  // For each labeled index: show "Apr 21" on the first label for that date,
+  // then just the time for subsequent same-day labels.
+  const sortedLabelIndices = [...labelIndices].sort((a, b) => a - b)
+  const seenDates = new Set<string>()
+  const xLabels = new Map<number, string>()
+  for (const i of sortedLabelIndices) {
+    const d = new Date(snapshots[i].created_at)
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    if (!seenDates.has(dateStr)) {
+      seenDates.add(dateStr)
+      xLabels.set(i, dateStr)
+    } else {
+      xLabels.set(i, d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }))
+    }
   }
 
   // Legend layout
@@ -209,7 +218,7 @@ function PriceChart({ snapshots, changedIndices }: { snapshots: PricingSnapshot[
       {/* Y axis gridlines */}
       {[0, 0.25, 0.5, 0.75, 1].map(t => {
         const y = PAD.top + innerH * (1 - t)
-        const label = (minVal + valRange * t).toFixed(0)
+        const label = '$' + (minVal + valRange * t).toFixed(0)
         return (
           <g key={t}>
             <line x1={PAD.left} y1={y} x2={CHART_W - PAD.right} y2={y} stroke="#2e303a" strokeWidth="1" />
@@ -218,17 +227,12 @@ function PriceChart({ snapshots, changedIndices }: { snapshots: PricingSnapshot[
         )
       })}
 
-      {/* X axis date labels — show time when same date appears multiple times */}
-      {[...labelIndices].map(i => {
-        const d = new Date(snapshots[i].created_at)
-        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        const label = (dateCounts.get(dateStr) ?? 1) > 1
-          ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-          : dateStr
-        return (
-          <text key={i} x={xPos(i)} y={CHART_AREA_H - 4} textAnchor="middle" fontSize="9" fill="#6b7280">{label}</text>
-        )
-      })}
+      {/* X axis: date on first label of each day, time on subsequent same-day labels */}
+      {sortedLabelIndices.map(i => (
+        <text key={i} x={xPos(i)} y={CHART_AREA_H - 4} textAnchor="middle" fontSize="9" fill="#6b7280">
+          {xLabels.get(i)}
+        </text>
+      ))}
 
       {/* Change markers */}
       {[...changedIndices].map(i => (
