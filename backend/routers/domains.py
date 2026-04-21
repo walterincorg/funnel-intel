@@ -146,21 +146,33 @@ def domain_stats():
 
 
 @router.get("/relationships", response_model=list[BuiltWithRelationshipOut])
-def list_relationships(competitor_id: str | None = None, days: int | None = None, limit: int = 5000):
-    """Get BuiltWith relationship rows, optionally filtered by competitor or recency."""
-    q = (
-        get_db()
-        .table("builtwith_relationships")
-        .select("*")
-        .order("scraped_at", desc=True)
-        .limit(limit)
-    )
-    if competitor_id:
-        q = q.eq("competitor_id", competitor_id)
-    if days:
-        since = (date.today() - timedelta(days=days)).isoformat()
-        q = q.gte("first_seen_at", since)
-    return q.execute().data
+def list_relationships(competitor_id: str | None = None, days: int | None = None, limit: int = 10000):
+    """Get BuiltWith relationship rows, paginated to get around Supabase's
+    1000-row server-side cap on a single response."""
+    db = get_db()
+    page_size = 1000
+    since = (date.today() - timedelta(days=days)).isoformat() if days else None
+
+    rows: list[dict] = []
+    offset = 0
+    while len(rows) < limit:
+        chunk_size = min(page_size, limit - len(rows))
+        q = (
+            db.table("builtwith_relationships")
+            .select("*")
+            .order("scraped_at", desc=True)
+            .range(offset, offset + chunk_size - 1)
+        )
+        if competitor_id:
+            q = q.eq("competitor_id", competitor_id)
+        if since:
+            q = q.gte("first_seen_at", since)
+        chunk = q.execute().data
+        rows.extend(chunk)
+        if len(chunk) < chunk_size:
+            break  # fewer rows than requested → reached the end
+        offset += chunk_size
+    return rows
 
 
 @router.post("/scan", status_code=202)
