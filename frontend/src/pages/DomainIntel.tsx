@@ -8,7 +8,7 @@ function isNew(r: BuiltWithRelationship, prevRunAt: string | null): boolean {
   return !!r.first_seen_at && !!prevRunAt && new Date(r.first_seen_at) > new Date(prevRunAt)
 }
 
-function CollapsibleInactive({ rows, prevRunAt }: { rows: BuiltWithRelationship[]; prevRunAt: string | null }) {
+function CollapsibleInactive({ rows }: { rows: BuiltWithRelationship[] }) {
   const [open, setOpen] = useState(false)
   if (!rows.length) return null
   return (
@@ -112,7 +112,7 @@ function CompetitorRelationshipCard({
         <p className="text-xs text-text/40 italic">No active relationships.</p>
       )}
 
-      <CollapsibleInactive rows={inactive} prevRunAt={prevRunAt} />
+      <CollapsibleInactive rows={inactive} />
     </div>
   )
 }
