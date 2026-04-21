@@ -1,0 +1,341 @@
+import { useQuery } from '@tanstack/react-query'
+import { api, type PricingSnapshot, type Competitor } from '@/api/client'
+import { formatDate } from '@/lib/utils'
+import { TrendingUp, TrendingDown, Plus, Minus, Clock } from 'lucide-react'
+
+// --- Price parsing ---
+
+function parsePrice(raw: string | undefined | null): number | null {
+  if (!raw) return null
+  const n = parseFloat(raw.replace(/[^0-9.]/g, ''))
+  return isNaN(n) ? null : n
+}
+
+// --- Change detection ---
+
+type ChangeKind = 'increased' | 'decreased' | 'added' | 'removed'
+
+interface PriceChange {
+  snapshotIndex: number
+  date: string
+  planName: string
+  kind: ChangeKind
+  oldPrice: string | null
+  newPrice: string | null
+  currency: string
+}
+
+function detectChanges(snapshots: PricingSnapshot[]): PriceChange[] {
+  const changes: PriceChange[] = []
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1]
+    const curr = snapshots[i]
+    const prevMap = new Map((prev.plans ?? []).map(p => [p.name, p]))
+    const currMap = new Map((curr.plans ?? []).map(p => [p.name, p]))
+
+    for (const [name, currPlan] of currMap) {
+      const prevPlan = prevMap.get(name)
+      if (!prevPlan) {
+        changes.push({ snapshotIndex: i, date: curr.created_at, planName: name, kind: 'added', oldPrice: null, newPrice: currPlan.price, currency: currPlan.currency })
+      } else {
+        const pv = parsePrice(prevPlan.price)
+        const cv = parsePrice(currPlan.price)
+        if (pv !== null && cv !== null && pv !== cv) {
+          const kind: ChangeKind = cv > pv ? 'increased' : 'decreased'
+          changes.push({ snapshotIndex: i, date: curr.created_at, planName: name, kind, oldPrice: prevPlan.price, newPrice: currPlan.price, currency: currPlan.currency })
+        }
+      }
+    }
+    for (const [name, prevPlan] of prevMap) {
+      if (!currMap.has(name)) {
+        changes.push({ snapshotIndex: i, date: curr.created_at, planName: name, kind: 'removed', oldPrice: prevPlan.price, newPrice: null, currency: prevPlan.currency })
+      }
+    }
+  }
+  return changes
+}
+
+// --- SVG Line Chart ---
+
+const PLAN_COLORS = ['#818cf8', '#34d399', '#fbbf24', '#60a5fa', '#f87171', '#c084fc']
+const CHART_W = 600
+const CHART_H = 140
+const PAD = { top: 12, right: 20, bottom: 32, left: 44 }
+
+function PriceChart({ snapshots, changedIndices }: { snapshots: PricingSnapshot[]; changedIndices: Set<number> }) {
+  if (snapshots.length < 2) return null
+
+  // Collect all plan names across all snapshots
+  const allPlans = Array.from(new Set(snapshots.flatMap(s => (s.plans ?? []).map(p => p.name))))
+
+  // Build series: planName -> [price | null] per snapshot
+  const series = allPlans.map(name => ({
+    name,
+    values: snapshots.map(s => {
+      const plan = (s.plans ?? []).find(p => p.name === name)
+      return plan ? parsePrice(plan.price) : null
+    }),
+  })).filter(s => s.values.some(v => v !== null))
+
+  if (series.length === 0) return null
+
+  const allValues = series.flatMap(s => s.values).filter((v): v is number => v !== null)
+  const minVal = Math.min(...allValues)
+  const maxVal = Math.max(...allValues)
+  const valRange = maxVal - minVal || 1
+
+  const innerW = CHART_W - PAD.left - PAD.right
+  const innerH = CHART_H - PAD.top - PAD.bottom
+
+  const xPos = (i: number) => PAD.left + (i / (snapshots.length - 1)) * innerW
+  const yPos = (v: number) => PAD.top + innerH - ((v - minVal) / valRange) * innerH
+
+  // X axis date labels (show first, last, and every ~4th)
+  const labelIndices = new Set<number>([0, snapshots.length - 1])
+  const step = Math.max(1, Math.floor(snapshots.length / 4))
+  for (let i = step; i < snapshots.length - 1; i += step) labelIndices.add(i)
+
+  return (
+    <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} width="100%" className="block">
+      {/* Y axis gridlines */}
+      {[0, 0.25, 0.5, 0.75, 1].map(t => {
+        const y = PAD.top + innerH * (1 - t)
+        const label = (minVal + valRange * t).toFixed(0)
+        return (
+          <g key={t}>
+            <line x1={PAD.left} y1={y} x2={CHART_W - PAD.right} y2={y} stroke="#2e303a" strokeWidth="1" />
+            <text x={PAD.left - 6} y={y + 4} textAnchor="end" fontSize="9" fill="#6b7280">{label}</text>
+          </g>
+        )
+      })}
+
+      {/* X axis date labels */}
+      {[...labelIndices].map(i => (
+        <text key={i} x={xPos(i)} y={CHART_H - 4} textAnchor="middle" fontSize="9" fill="#6b7280">
+          {new Date(snapshots[i].created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        </text>
+      ))}
+
+      {/* Change markers (vertical line at changed snapshots) */}
+      {[...changedIndices].map(i => (
+        <line
+          key={i}
+          x1={xPos(i)} y1={PAD.top}
+          x2={xPos(i)} y2={PAD.top + innerH}
+          stroke="#fbbf24" strokeWidth="1" strokeDasharray="3,2" opacity="0.4"
+        />
+      ))}
+
+      {/* Lines + dots per plan */}
+      {series.map((s, si) => {
+        const color = PLAN_COLORS[si % PLAN_COLORS.length]
+        const points: { x: number; y: number; i: number; v: number }[] = []
+        s.values.forEach((v, i) => { if (v !== null) points.push({ x: xPos(i), y: yPos(v), i, v }) })
+
+        const pathD = points.map((p, pi) => `${pi === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
+
+        return (
+          <g key={s.name}>
+            <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+            {points.map(p => (
+              <circle
+                key={p.i}
+                cx={p.x} cy={p.y} r={changedIndices.has(p.i) ? 4 : 2.5}
+                fill={changedIndices.has(p.i) ? color : '#1a1b23'}
+                stroke={color}
+                strokeWidth={changedIndices.has(p.i) ? 1.5 : 1}
+              >
+                <title>{s.name}: {p.v} · {new Date(snapshots[p.i].created_at).toLocaleDateString()}</title>
+              </circle>
+            ))}
+          </g>
+        )
+      })}
+
+      {/* Legend */}
+      {series.map((s, si) => (
+        <g key={s.name} transform={`translate(${PAD.left + si * 110}, ${PAD.top - 2})`}>
+          <line x1="0" y1="5" x2="12" y2="5" stroke={PLAN_COLORS[si % PLAN_COLORS.length]} strokeWidth="1.5" />
+          <circle cx="6" cy="5" r="2" fill={PLAN_COLORS[si % PLAN_COLORS.length]} />
+          <text x="16" y="9" fontSize="9" fill="#9ca3af">{s.name}</text>
+        </g>
+      ))}
+    </svg>
+  )
+}
+
+// --- Change badge ---
+
+function ChangeBadge({ kind }: { kind: ChangeKind }) {
+  if (kind === 'increased') return (
+    <span className="inline-flex items-center gap-1 text-xs text-danger bg-danger/10 border border-danger/20 px-2 py-0.5 rounded-full">
+      <TrendingUp size={10} /> Higher
+    </span>
+  )
+  if (kind === 'decreased') return (
+    <span className="inline-flex items-center gap-1 text-xs text-success bg-success/10 border border-success/20 px-2 py-0.5 rounded-full">
+      <TrendingDown size={10} /> Lower
+    </span>
+  )
+  if (kind === 'added') return (
+    <span className="inline-flex items-center gap-1 text-xs text-info bg-info/10 border border-info/20 px-2 py-0.5 rounded-full">
+      <Plus size={10} /> New plan
+    </span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-text/50 bg-bg-hover border border-border px-2 py-0.5 rounded-full">
+      <Minus size={10} /> Removed
+    </span>
+  )
+}
+
+// --- Per-competitor card ---
+
+function CompetitorHistoryCard({ competitor, snapshots }: { competitor: Competitor; snapshots: PricingSnapshot[] }) {
+  // Sort ascending for timeline
+  const sorted = [...snapshots].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  const changes = detectChanges(sorted)
+  const changedIndices = new Set(changes.map(c => c.snapshotIndex))
+
+  const lastChange = changes.length > 0
+    ? changes[changes.length - 1]
+    : null
+
+  const lastChangeDate = lastChange
+    ? new Date(lastChange.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
+
+  return (
+    <div className="bg-bg-card rounded-xl border border-border overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 className="text-text-bright font-medium">{competitor.name}</h3>
+          <p className="text-xs text-text/50 mt-0.5">{sorted.length} scan{sorted.length !== 1 ? 's' : ''} captured</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {changes.length > 0 && lastChangeDate !== null ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-warning bg-warning/8 border border-warning/20 px-2.5 py-1 rounded-full">
+              <Clock size={11} />
+              Last change {lastChangeDate}
+            </span>
+          ) : sorted.length > 1 ? (
+            <span className="text-xs text-success bg-success/8 border border-success/20 px-2.5 py-1 rounded-full">No changes detected</span>
+          ) : null}
+        </div>
+      </div>
+
+      {sorted.length < 2 ? (
+        <p className="px-5 py-6 text-sm text-text/40 italic text-center">
+          Only 1 scan captured — check back after the next scan to see history
+        </p>
+      ) : (
+        <>
+          {/* Chart */}
+          <div className="px-5 pt-4 pb-2">
+            <PriceChart snapshots={sorted} changedIndices={changedIndices} />
+          </div>
+
+          {/* Change log */}
+          {changes.length > 0 ? (
+            <div className="border-t border-border/30">
+              <div className="px-5 py-2 text-xs text-text/40 uppercase tracking-wide font-medium">Change log</div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-text/40 uppercase tracking-wide border-b border-border/20">
+                    <th className="text-left px-5 py-2 font-medium">Date</th>
+                    <th className="text-left px-5 py-2 font-medium">Plan</th>
+                    <th className="text-left px-5 py-2 font-medium">Change</th>
+                    <th className="text-right px-5 py-2 font-medium">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...changes].reverse().map((c, i) => (
+                    <tr key={i} className="border-b border-border/15 last:border-0 hover:bg-bg-hover/40 transition-colors">
+                      <td className="px-5 py-2.5 text-text/50 text-xs whitespace-nowrap">{formatDate(c.date)}</td>
+                      <td className="px-5 py-2.5 text-text-bright font-medium">{c.planName}</td>
+                      <td className="px-5 py-2.5"><ChangeBadge kind={c.kind} /></td>
+                      <td className="px-5 py-2.5 text-right text-xs text-text/60">
+                        {c.oldPrice && c.newPrice ? (
+                          <>
+                            <span className="line-through text-text/30">{c.oldPrice}</span>
+                            {' → '}
+                            <span className={c.kind === 'increased' ? 'text-danger' : 'text-success'}>{c.newPrice}</span>
+                            {' '}
+                            <span className="text-text/30">{c.currency}</span>
+                          </>
+                        ) : c.newPrice ? (
+                          <span className="text-info">{c.newPrice} {c.currency}</span>
+                        ) : (
+                          <span className="text-text/30">{c.oldPrice} {c.currency}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="px-5 py-3 text-sm text-text/40 border-t border-border/20">No price changes across {sorted.length} scans.</p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// --- Page ---
+
+export function PricingHistory() {
+  const { data: snapshots, isLoading } = useQuery({
+    queryKey: ['pricing-all'],
+    queryFn: () => api.listPricingAll(),
+  })
+
+  const { data: competitors } = useQuery({
+    queryKey: ['competitors'],
+    queryFn: api.listCompetitors,
+  })
+
+  if (isLoading) {
+    return <div className="text-text/50 py-12 text-center">Loading...</div>
+  }
+
+  const compMap = new Map((competitors ?? []).map(c => [c.id, c]))
+
+  // Group snapshots by competitor
+  const byCompetitor = new Map<string, PricingSnapshot[]>()
+  for (const s of snapshots ?? []) {
+    const list = byCompetitor.get(s.competitor_id) ?? []
+    list.push(s)
+    byCompetitor.set(s.competitor_id, list)
+  }
+
+  // Sort competitors by name
+  const competitorEntries = Array.from(byCompetitor.entries())
+    .map(([id, snaps]) => ({ competitor: compMap.get(id), snaps }))
+    .filter((e): e is { competitor: Competitor; snaps: PricingSnapshot[] } => !!e.competitor)
+    .sort((a, b) => a.competitor.name.localeCompare(b.competitor.name))
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold text-text-bright">Pricing History</h1>
+        <p className="text-sm text-text/60 mt-1">Track how competitor pricing has changed over time</p>
+      </div>
+
+      {competitorEntries.length === 0 ? (
+        <div className="bg-bg-card rounded-xl border border-border p-8 text-center">
+          <p className="text-text/50">No pricing data captured yet.</p>
+          <p className="text-sm text-text/40 mt-1">Pricing history will appear here after scans capture pricing pages.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {competitorEntries.map(({ competitor, snaps }) => (
+            <CompetitorHistoryCard key={competitor.id} competitor={competitor} snapshots={snaps} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

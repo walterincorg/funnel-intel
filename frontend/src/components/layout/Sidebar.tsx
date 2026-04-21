@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, ScanSearch, DollarSign, Megaphone, Globe, Menu, X, ChevronDown, Settings } from 'lucide-react'
+import { LayoutDashboard, Users, ScanSearch, DollarSign, TrendingUp, Megaphone, Globe, Menu, X, ChevronDown, Settings } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -16,6 +16,7 @@ const groups: NavGroup[] = [
     children: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/pricing', icon: DollarSign, label: 'Pricing' },
+      { to: '/pricing/history', icon: TrendingUp, label: 'Price History' },
     ],
   },
   {
