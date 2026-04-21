@@ -150,12 +150,14 @@ def _run_domain_intel(today: date):
 
         # Phase 4: BuiltWith relationship scraping
         relationships_scraped = 0
-        for comp in comps:
-            if not comp.get("funnel_url"):
-                continue
+        bw_competitors = [c for c in comps if c.get("funnel_url")]
+        log.info("BuiltWith scraping: %d competitors to process", len(bw_competitors))
+        for i, comp in enumerate(bw_competitors, 1):
             domain = urlparse(comp["funnel_url"]).netloc
+            log.info("BuiltWith [%d/%d] scraping %s (%s)", i, len(bw_competitors), comp["name"], domain)
             try:
                 rows = scrape_relationships(domain)
+                log.info("BuiltWith [%d/%d] %s -> %d rows", i, len(bw_competitors), domain, len(rows))
                 for row in rows:
                     db.table("builtwith_relationships").upsert({
                         "competitor_id": comp["id"],
@@ -171,6 +173,7 @@ def _run_domain_intel(today: date):
                 time.sleep(2.5)
             except Exception:
                 log.exception("BuiltWith scrape failed for %s", domain)
+        log.info("BuiltWith scraping complete: %d total rows across %d competitors", relationships_scraped, len(bw_competitors))
 
         db.table("domain_intel_runs").update({
             "status": "completed",
