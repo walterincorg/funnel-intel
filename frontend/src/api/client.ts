@@ -241,6 +241,19 @@ export interface DomainIntelRun {
   created_at: string
 }
 
+export interface BuiltWithRelationship {
+  id: string
+  competitor_id: string
+  source_domain: string
+  related_domain: string
+  attribute_value: string | null
+  first_detected: string | null
+  last_detected: string | null
+  overlap_duration: string | null
+  first_seen_at: string | null
+  scraped_at: string
+}
+
 export interface DomainStats {
   competitors_tracked: number
   clusters_found: number
@@ -351,6 +364,12 @@ export const api = {
   domainRuns: () => request<DomainIntelRun[]>('/domains/runs'),
   triggerDomainScan: () =>
     request<{ run_id: string; status: string }>('/domains/scan', { method: 'POST' }),
+  listRelationships: (params?: { competitor_id?: string; days?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.competitor_id) qs.set('competitor_id', params.competitor_id)
+    if (params?.days) qs.set('days', String(params.days))
+    return request<BuiltWithRelationship[]>(`/domains/relationships?${qs}`)
+  },
 
   // Settings
   getSettings: () => request<AppSettings>('/settings'),

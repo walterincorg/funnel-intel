@@ -217,6 +217,7 @@ class BuiltWithRelationshipOut(BaseModel):
     first_detected: str | None = None
     last_detected: str | None = None
     overlap_duration: str | None = None
+    first_seen_at: datetime | None = None
     scraped_at: datetime | None = None
 
 

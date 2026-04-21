@@ -1,7 +1,7 @@
 """Domain Intelligence API endpoints."""
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter
 from backend.db import get_db
@@ -146,8 +146,8 @@ def domain_stats():
 
 
 @router.get("/relationships", response_model=list[BuiltWithRelationshipOut])
-def list_relationships(competitor_id: str | None = None, limit: int = 200):
-    """Get BuiltWith relationship rows, optionally filtered by competitor."""
+def list_relationships(competitor_id: str | None = None, days: int | None = None, limit: int = 200):
+    """Get BuiltWith relationship rows, optionally filtered by competitor or recency."""
     q = (
         get_db()
         .table("builtwith_relationships")
@@ -157,6 +157,9 @@ def list_relationships(competitor_id: str | None = None, limit: int = 200):
     )
     if competitor_id:
         q = q.eq("competitor_id", competitor_id)
+    if days:
+        since = (date.today() - timedelta(days=days)).isoformat()
+        q = q.gte("first_seen_at", since)
     return q.execute().data
 
 

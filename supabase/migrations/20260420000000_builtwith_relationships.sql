@@ -7,6 +7,7 @@ CREATE TABLE builtwith_relationships (
   first_detected text,
   last_detected text,
   overlap_duration text,
+  first_seen_at timestamptz DEFAULT now(),
   scraped_at timestamptz DEFAULT now(),
   UNIQUE (competitor_id, related_domain, attribute_value)
 );

@@ -1,8 +1,115 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Play, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react'
-import { api } from '@/api/client'
-import { cn, formatDate } from '@/lib/utils'
+import { ArrowLeft, Play, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle, ChevronDown, Sparkles } from 'lucide-react'
+import { api, type BuiltWithRelationship } from '@/api/client'
+import { cn, formatDate, checkActive, getPrevRunCutoff } from '@/lib/utils'
+
+function RelatedDomainsSection({ rows, prevRunAt }: { rows: BuiltWithRelationship[]; prevRunAt: string | null }) {
+  const [inactiveOpen, setInactiveOpen] = useState(false)
+
+  const active = rows.filter(r => checkActive(r.last_detected))
+  const inactive = rows.filter(r => !checkActive(r.last_detected))
+  const newCount = active.filter(r => !!r.first_seen_at && !!prevRunAt && new Date(r.first_seen_at) > new Date(prevRunAt)).length
+
+  if (rows.length === 0) return (
+    <div className="mb-6">
+      <h2 className="text-lg font-medium text-text-bright mb-3">Related Domains</h2>
+      <div className="bg-bg-card rounded-xl border border-border p-6 text-center text-text/40 text-sm">
+        No BuiltWith relationship data yet — run a domain scan.
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-lg font-medium text-text-bright">Related Domains</h2>
+        {newCount > 0 && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-info/10 text-info">
+            <Sparkles size={10} />
+            {newCount} new
+          </span>
+        )}
+      </div>
+      <div className="bg-bg-card rounded-xl border border-border p-4">
+        {active.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/50">
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-text/50 uppercase tracking-wide">Related domain</th>
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-text/50 uppercase tracking-wide">Shared attribute</th>
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-text/50 uppercase tracking-wide">First detected</th>
+                  <th className="text-left py-2 text-xs font-medium text-text/50 uppercase tracking-wide">Overlap</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {active.map(r => {
+                  const fresh = !!r.first_seen_at && !!prevRunAt && new Date(r.first_seen_at) > new Date(prevRunAt)
+                  return (
+                    <tr key={r.id} className="border-b border-border/30 hover:bg-bg-hover/40">
+                      <td className="py-2 pr-4">
+                        <a
+                          href={`https://${r.related_domain}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono text-accent hover:underline text-sm"
+                        >
+                          {r.related_domain}
+                          <ExternalLink size={10} />
+                        </a>
+                      </td>
+                      <td className="py-2 pr-4 text-text/70">{r.attribute_value ?? '—'}</td>
+                      <td className="py-2 pr-4 text-text/50">{r.first_detected ?? '—'}</td>
+                      <td className="py-2 text-text/50">{r.overlap_duration ?? '—'}</td>
+                      <td className="py-2 text-right">
+                        {fresh && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-info/10 text-info">
+                            <Sparkles size={9} /> New
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-text/40 italic">No active relationships.</p>
+        )}
+
+        {inactive.length > 0 && (
+          <div className="mt-3 border-t border-border/50 pt-2">
+            <button
+              onClick={() => setInactiveOpen(o => !o)}
+              className="flex items-center gap-1.5 text-xs text-text/40 hover:text-text/60 transition-colors"
+            >
+              <ChevronDown size={12} className={cn('transition-transform', inactiveOpen && 'rotate-180')} />
+              {inactive.length} inactive
+            </button>
+            {inactiveOpen && (
+              <table className="w-full mt-3 text-xs text-text/30">
+                <tbody>
+                  {inactive.map(r => (
+                    <tr key={r.id} className="border-b border-border/20">
+                      <td className="py-1.5 pr-4 font-mono">{r.related_domain}</td>
+                      <td className="py-1.5 pr-4">{r.attribute_value ?? '—'}</td>
+                      <td className="py-1.5 pr-4">{r.first_detected ?? '—'}</td>
+                      <td className="py-1.5">{r.overlap_duration ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export function CompetitorDetail() {
   const { id } = useParams<{ id: string }>()
@@ -26,6 +133,17 @@ export function CompetitorDetail() {
     queryKey: ['active-jobs'],
     queryFn: api.listActiveJobs,
     refetchInterval: 3000,
+  })
+
+  const { data: domainRuns } = useQuery({
+    queryKey: ['domain-runs'],
+    queryFn: api.domainRuns,
+  })
+
+  const { data: relatedDomains } = useQuery({
+    queryKey: ['bw-relationships', id],
+    queryFn: () => api.listRelationships({ competitor_id: id! }),
+    enabled: !!id,
   })
 
   const isScanning = (activeJobs ?? []).some(j => j.competitor_id === id)
@@ -86,6 +204,12 @@ export function CompetitorDetail() {
           </button>
         </div>
       </div>
+
+      {/* Related Domains (BuiltWith) */}
+      <RelatedDomainsSection
+        rows={relatedDomains ?? []}
+        prevRunAt={getPrevRunCutoff(domainRuns ?? [])}
+      />
 
       {/* Scan History */}
       <h2 className="text-lg font-medium text-text-bright mb-4">Scan History</h2>
