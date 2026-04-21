@@ -58,7 +58,20 @@ class DSU {
   }
 }
 
-function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null): Cluster[] {
+function competitorDomain(funnelUrl: string | null | undefined): string | null {
+  if (!funnelUrl) return null
+  try {
+    return new URL(funnelUrl).hostname
+  } catch {
+    return null
+  }
+}
+
+function buildClusters(
+  rows: BuiltWithRelationship[],
+  prevRunAt: string | null,
+  trackedCompetitors: string[],
+): Cluster[] {
   const byRelated = new Map<string, RelatedEntry>()
   for (const r of rows) {
     let entry = byRelated.get(r.related_domain)
@@ -88,7 +101,8 @@ function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null):
   }
 
   const dsu = new DSU()
-  const competitorSet = new Set<string>()
+  const competitorSet = new Set<string>(trackedCompetitors)
+  for (const c of trackedCompetitors) dsu.find(c) // pre-register so singletons appear
   for (const r of rows) {
     competitorSet.add(r.source_domain)
     dsu.union(r.source_domain, r.related_domain)
@@ -106,10 +120,16 @@ function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null):
     if (entry.hasNew) cluster.newCount += 1
   }
 
+  // Attach every tracked competitor to its cluster, creating empty clusters
+  // for competitors that returned no BuiltWith relationship data.
   for (const c of competitorSet) {
     const root = dsu.find(c)
-    const cluster = clusters.get(root)
-    if (cluster) cluster.competitors.push(c)
+    let cluster = clusters.get(root)
+    if (!cluster) {
+      cluster = { competitors: [], related: [], newCount: 0 }
+      clusters.set(root, cluster)
+    }
+    cluster.competitors.push(c)
   }
   for (const cluster of clusters.values()) {
     cluster.competitors.sort()
@@ -180,7 +200,14 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
         </div>
       </button>
 
-      {open && (
+      {open && cluster.related.length === 0 && (
+        <div className="border-t border-border/40 px-5 py-4 text-sm text-text/50 italic">
+          BuiltWith returned no relationship data for this competitor — likely no shared
+          tracking attributes detected, or the domain is excluded from BuiltWith lookups.
+        </div>
+      )}
+
+      {open && cluster.related.length > 0 && (
         <div className="border-t border-border/40 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg-hover/30">
@@ -257,6 +284,11 @@ export function DomainIntel() {
     queryFn: () => api.listRelationships(),
   })
 
+  const { data: competitors } = useQuery({
+    queryKey: ['competitors'],
+    queryFn: api.listCompetitors,
+  })
+
   const isScanning = runs?.[0]?.status === 'running' || runs?.[0]?.status === 'pending'
 
   const scanMutation = useMutation({
@@ -266,9 +298,17 @@ export function DomainIntel() {
 
   const prevRunAt = getPrevRunCutoff(runs ?? [])
 
+  const trackedDomains = useMemo(
+    () =>
+      (competitors ?? [])
+        .map(c => competitorDomain(c.funnel_url))
+        .filter((d): d is string => !!d),
+    [competitors],
+  )
+
   const clusters = useMemo(
-    () => buildClusters(relationships ?? [], prevRunAt),
-    [relationships, prevRunAt],
+    () => buildClusters(relationships ?? [], prevRunAt, trackedDomains),
+    [relationships, prevRunAt, trackedDomains],
   )
 
   const totalNew = useMemo(
