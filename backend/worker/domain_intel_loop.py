@@ -1,9 +1,6 @@
 """Domain intelligence orchestration.
 
-Weekly pipeline with three phases:
-  1. Extract GA + Pixel codes from each competitor's homepage.
-  2. Cluster competitors sharing a GA or Pixel (same-operator detection).
-  3. Poll WhoisXML for new `brand.*` domain registrations (past 7 days).
+Scrapes BuiltWith relationship data for each competitor's domain.
 """
 
 from __future__ import annotations
@@ -15,9 +12,6 @@ from urllib.parse import urlparse
 
 from backend.db import get_db
 from backend.settings import get_settings
-from backend.worker.domain_intel import run_fingerprint_extraction
-from backend.worker.domain_clustering import compute_clusters
-from backend.worker.domain_monitor import poll_new_domains
 from backend.worker.builtwith_scraper import scrape_relationships
 from backend.worker.alerts import send_alert
 
@@ -103,9 +97,6 @@ def _run_domain_intel(today: date):
         }).execute().data[0]
         run_id = run["id"]
 
-    total_fingerprints = 0
-    competitors_scanned = 0
-
     try:
         comps = db.table("competitors").select("id, name, funnel_url").execute().data
         if not comps:
@@ -116,48 +107,23 @@ def _run_domain_intel(today: date):
             }).eq("id", run_id).execute()
             return
 
-        # Phase 1: extract GA/Pixel/GTM codes from competitor homepages
-        for comp in comps:
-            if not comp.get("funnel_url"):
-                continue
-            # Use the root domain (homepage), not the deep funnel URL.
-            # Tracking codes are reliably on the homepage; funnel pages
-            # are often JS-rendered SPAs with no inline tracking.
-            parsed = urlparse(comp["funnel_url"])
-            homepage_url = f"{parsed.scheme}://{parsed.netloc}/"
-            try:
-                result = run_fingerprint_extraction(
-                    comp["id"], comp["name"], homepage_url
-                )
-                total_fingerprints += result.get("fingerprints_stored", 0)
-                competitors_scanned += 1
-            except Exception:
-                log.exception("Failed to extract fingerprints for %s", comp["name"])
-
-        # Phase 2: cluster operators sharing GA/Pixel
-        clusters_found = 0
-        try:
-            clusters_found = compute_clusters()
-        except Exception:
-            log.exception("Clustering failed")
-
-        # Phase 3: WHOIS brand-prefix monitoring
-        domains_discovered = 0
-        try:
-            domains_discovered = poll_new_domains()
-        except Exception:
-            log.exception("Domain monitoring failed")
-
-        # Phase 4: BuiltWith relationship scraping
         relationships_scraped = 0
         bw_competitors = [c for c in comps if c.get("funnel_url")]
         log.info("BuiltWith scraping: %d competitors to process", len(bw_competitors))
         for i, comp in enumerate(bw_competitors, 1):
             domain = urlparse(comp["funnel_url"]).netloc
             log.info("BuiltWith [%d/%d] scraping %s (%s)", i, len(bw_competitors), comp["name"], domain)
+            comp_start = time.perf_counter()
             try:
                 rows = scrape_relationships(domain)
-                log.info("BuiltWith [%d/%d] %s -> %d rows", i, len(bw_competitors), domain, len(rows))
+                scrape_elapsed = time.perf_counter() - comp_start
+                log.info("BuiltWith [%d/%d] %s -> %d rows (scraped in %.1fs)",
+                         i, len(bw_competitors), domain, len(rows), scrape_elapsed,
+                         extra={"duration_ms": round(scrape_elapsed * 1000), "competitor_id": comp["id"]})
+                if rows:
+                    log.debug("BuiltWith [%d/%d] %s rows preview: %s", i, len(bw_competitors), domain,
+                              [r.get("domain") for r in rows[:3]])
+                upsert_start = time.perf_counter()
                 for row in rows:
                     db.table("builtwith_relationships").upsert({
                         "competitor_id": comp["id"],
@@ -169,32 +135,36 @@ def _run_domain_intel(today: date):
                         "overlap_duration": row["overlapDuration"],
                         "scraped_at": datetime.now(timezone.utc).isoformat(),
                     }, on_conflict="competitor_id,related_domain,attribute_value").execute()
+                if rows:
+                    upsert_elapsed = time.perf_counter() - upsert_start
+                    log.debug("BuiltWith [%d/%d] %s upserted %d rows in %.1fs",
+                              i, len(bw_competitors), domain, len(rows), upsert_elapsed)
                 relationships_scraped += len(rows)
                 time.sleep(2.5)
             except Exception:
-                log.exception("BuiltWith scrape failed for %s", domain)
+                scrape_elapsed = time.perf_counter() - comp_start
+                log.exception("BuiltWith [%d/%d] scrape failed for %s after %.1fs",
+                              i, len(bw_competitors), domain, scrape_elapsed,
+                              extra={"competitor_id": comp["id"]})
         log.info("BuiltWith scraping complete: %d total rows across %d competitors", relationships_scraped, len(bw_competitors))
 
+        bw_competitors_count = len(bw_competitors)
         db.table("domain_intel_runs").update({
             "status": "completed",
             "completed_at": datetime.now(timezone.utc).isoformat(),
-            "competitors_scanned": competitors_scanned,
-            "fingerprints_found": total_fingerprints,
-            "clusters_found": clusters_found,
-            "domains_discovered": domains_discovered,
+            "competitors_scanned": bw_competitors_count,
         }).eq("id", run_id).execute()
 
         duration_ms = (time.perf_counter() - pipeline_start) * 1000
         log.info(
-            "Domain intel completed: %d competitors, %d fingerprints, %d clusters, %d domains, %d bw-relationships (%.1fs)",
-            competitors_scanned, total_fingerprints, clusters_found, domains_discovered,
-            relationships_scraped, duration_ms / 1000,
+            "Domain intel completed: %d competitors, %d bw-relationships (%.1fs)",
+            bw_competitors_count, relationships_scraped, duration_ms / 1000,
             extra={"duration_ms": round(duration_ms)},
         )
 
         send_alert(
-            f"Domain Intel complete: {competitors_scanned} competitors scanned, "
-            f"{clusters_found} clusters, {domains_discovered} new domains"
+            f"Domain Intel complete: {bw_competitors_count} competitors scanned, "
+            f"{relationships_scraped} BuiltWith relationships"
         )
 
     except Exception as e:
