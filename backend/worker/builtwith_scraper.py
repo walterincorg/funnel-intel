@@ -64,7 +64,7 @@ _SCRAPER_JS = """
 """
 
 
-def _run(args: list[str], timeout: int = 60) -> str:
+def _run(args: list[str], timeout: int = 15) -> str:
     env = {**os.environ, "IN_DOCKER": "true", "DISPLAY": ":99"}
     cmd_label = args[0]
     # Compact preview of args (truncate long JS/URLs)
@@ -115,12 +115,8 @@ def _captcha_word() -> str:
 
 def _solve_captcha() -> None:
     captcha_start = time.perf_counter()
-    log.debug("[builtwith] solve_captcha: waiting for captcha-or-table selector")
-    try:
-        _run(["wait", "selector", "#human-test-img, table.table-sm", "--timeout", "5000"])
-    except Exception as e:
-        log.debug("[builtwith] solve_captcha: wait selector threw %s (continuing)", type(e).__name__)
-
+    # Skipping the pre-wait — browser-use `wait selector` ignores --timeout and
+    # hangs for the full subprocess timeout instead. _has_captcha() is sufficient.
     if not _has_captcha():
         log.info("[builtwith] No captcha (check took %.1fs)",
                  time.perf_counter() - captcha_start)
@@ -214,10 +210,9 @@ def _solve_captcha() -> None:
         log.info("[builtwith] Clicked captcha cell row=%d col=%d at (%d,%d)",
                  c["row"], c["col"], x, y)
 
-    try:
-        _run(["wait", "selector", "table.table-sm", "--timeout", "10000"])
-    except Exception as e:
-        log.debug("[builtwith] post-captcha wait threw %s (continuing)", type(e).__name__)
+    # Brief pause for the page to re-render after captcha clicks. We can't use
+    # `browser-use wait selector` because it ignores --timeout and hangs.
+    time.sleep(2)
 
     log.info("[builtwith] Captcha solved in %.1fs total",
              time.perf_counter() - captcha_start,
@@ -243,7 +238,7 @@ def scrape_relationships(domain: str) -> list[dict[str, Any]]:
              extra={"duration_ms": round(captcha_elapsed * 1000)})
 
     eval_start = time.perf_counter()
-    raw = _run(["eval", _SCRAPER_JS])
+    raw = _run(["eval", _SCRAPER_JS], timeout=45)
     eval_elapsed = time.perf_counter() - eval_start
     log.info("[builtwith] %s: eval phase took %.1fs (raw=%d bytes)",
              domain, eval_elapsed, len(raw),
