@@ -96,12 +96,13 @@ def _run(args: list[str], timeout: int = 15) -> str:
 
 
 def _has_captcha() -> bool:
-    out = _run(["eval", "document.querySelector('#human-test-img') ? '1' : '0'"])
+    # First eval after open can be slow (page still stabilizing). Give it room.
+    out = _run(["eval", "document.querySelector('#human-test-img') ? '1' : '0'"], timeout=45)
     return out.strip().endswith("1")
 
 
 def _captcha_word() -> str:
-    text = _run(["eval", "document.body.innerText"])
+    text = _run(["eval", "document.body.innerText"], timeout=30)
     capture_next = False
     for line in text.splitlines():
         line = line.strip()
