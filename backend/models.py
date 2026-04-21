@@ -208,6 +208,18 @@ class DomainIntelRunOut(BaseModel):
     created_at: datetime | None = None
 
 
+class BuiltWithRelationshipOut(BaseModel):
+    id: str
+    competitor_id: str
+    source_domain: str
+    related_domain: str
+    attribute_value: str | None = None
+    first_detected: str | None = None
+    last_detected: str | None = None
+    overlap_duration: str | None = None
+    scraped_at: datetime | None = None
+
+
 # --- App Settings ---
 
 class AppSettings(BaseModel):

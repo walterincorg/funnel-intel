@@ -9,3 +9,4 @@ supabase
 pydantic
 requests
 anthropic
+Pillow
