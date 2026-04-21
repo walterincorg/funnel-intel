@@ -28,8 +28,34 @@ interface Cluster {
   allInactive: boolean
 }
 
+// Union-find. Two domains end up in the same component if there's any
+// chain of (source <-> related) edges connecting them in the raw data.
+class DSU {
+  private parent = new Map<string, string>()
+  find(x: string): string {
+    if (!this.parent.has(x)) {
+      this.parent.set(x, x)
+      return x
+    }
+    let root = x
+    while (this.parent.get(root)! !== root) root = this.parent.get(root)!
+    // path compression
+    let cur = x
+    while (this.parent.get(cur)! !== root) {
+      const next = this.parent.get(cur)!
+      this.parent.set(cur, root)
+      cur = next
+    }
+    return root
+  }
+  union(a: string, b: string) {
+    const ra = this.find(a), rb = this.find(b)
+    if (ra !== rb) this.parent.set(ra, rb)
+  }
+}
+
 function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null): Cluster[] {
-  // Step 1: group rows by related_domain, collecting which competitors link to it.
+  // Aggregate per related_domain first — we'll need the attributes + dates later.
   const byRelated = new Map<string, RelatedEntry>()
   for (const r of rows) {
     let entry = byRelated.get(r.related_domain)
@@ -57,21 +83,28 @@ function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null):
     if (checkActive(r.last_detected)) entry.active = true
   }
 
-  // Step 2: bucket related-entries by the exact set of competitors that link to them.
+  // Transitive closure: every source<->related edge unions the two domains.
+  const dsu = new DSU()
+  const competitorSet = new Set<string>()
+  for (const r of rows) {
+    competitorSet.add(r.source_domain)
+    dsu.union(r.source_domain, r.related_domain)
+  }
+
+  // Bucket RelatedEntries by their component root.
   const clusters = new Map<string, Cluster>()
   for (const entry of byRelated.values()) {
-    const competitorSet = [...new Set(entry.rows.map(r => r.source_domain))].sort()
-    const key = competitorSet.join('|')
-    let cluster = clusters.get(key)
+    const root = dsu.find(entry.relatedDomain)
+    let cluster = clusters.get(root)
     if (!cluster) {
       cluster = {
-        competitors: competitorSet,
+        competitors: [],
         related: [],
         newCount: 0,
         activeCount: 0,
         allInactive: true,
       }
-      clusters.set(key, cluster)
+      clusters.set(root, cluster)
     }
     cluster.related.push(entry)
     if (entry.hasNew) cluster.newCount += 1
@@ -81,7 +114,15 @@ function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null):
     }
   }
 
-  // Sort clusters: multi-competitor first, then by #related desc, then alphabetic.
+  // Attach each competitor to the component it lives in.
+  for (const c of competitorSet) {
+    const root = dsu.find(c)
+    const cluster = clusters.get(root)
+    if (cluster) cluster.competitors.push(c)
+  }
+  for (const cluster of clusters.values()) cluster.competitors.sort()
+
+  // Sort: multi-competitor first, then by #related desc, then alphabetic.
   return [...clusters.values()].sort((a, b) => {
     if ((a.competitors.length > 1) !== (b.competitors.length > 1)) {
       return b.competitors.length - a.competitors.length
@@ -90,7 +131,7 @@ function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null):
       return b.competitors.length - a.competitors.length
     }
     if (a.related.length !== b.related.length) return b.related.length - a.related.length
-    return a.competitors[0].localeCompare(b.competitors[0])
+    return (a.competitors[0] ?? '').localeCompare(b.competitors[0] ?? '')
   })
 }
 
