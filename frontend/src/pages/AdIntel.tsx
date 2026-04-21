@@ -27,6 +27,43 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+interface AdCopyChange {
+  date: string
+  field: 'headline' | 'body' | 'cta'
+  oldText: string
+  newText: string
+}
+
+function detectAdChanges(snapshots: AdSnapshot[]): AdCopyChange[] {
+  const changes: AdCopyChange[] = []
+  // snapshots are DESC by date; compare [i] (newer) vs [i+1] (older)
+  for (let i = 0; i < snapshots.length - 1; i++) {
+    const newer = snapshots[i]
+    const older = snapshots[i + 1]
+    const date = newer.captured_date ?? ''
+    if (newer.headline && older.headline && newer.headline !== older.headline)
+      changes.push({ date, field: 'headline', oldText: older.headline, newText: newer.headline })
+    if (newer.body_text && older.body_text && newer.body_text !== older.body_text)
+      changes.push({ date, field: 'body', oldText: older.body_text, newText: newer.body_text })
+    if (newer.cta && older.cta && newer.cta !== older.cta)
+      changes.push({ date, field: 'cta', oldText: older.cta, newText: newer.cta })
+  }
+  return changes
+}
+
+function ChangeEntry({ change }: { change: AdCopyChange }) {
+  return (
+    <div className="rounded-lg bg-bg p-3 text-xs space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="px-1.5 py-0.5 rounded bg-warning/10 text-warning font-medium capitalize">{change.field}</span>
+        <span className="text-text/40">{change.date}</span>
+      </div>
+      <p className="text-text/50 line-through line-clamp-1">{change.oldText.slice(0, 80)}</p>
+      <p className="text-text-bright line-clamp-1">{change.newText.slice(0, 80)}</p>
+    </div>
+  )
+}
+
 function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void }) {
   const { data: ad, isLoading: adLoading } = useQuery<Ad>({
     queryKey: ['ad', adId],
@@ -40,6 +77,11 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
 
   const snap = snapshots?.[0]
   const isLoading = adLoading || snapLoading
+  const copyChanges = snapshots ? detectAdChanges(snapshots) : []
+  // A "recent change" is one that occurred in the transition from the previous snapshot to today's
+  const prevSnapshotDate = snapshots?.[1]?.captured_date
+  const recentChange = copyChanges.find(c => c.date === prevSnapshotDate) ?? null
+  const olderChanges = copyChanges.filter(c => c !== recentChange)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -144,6 +186,42 @@ function AdDetailModal({ adId, onClose }: { adId: string; onClose: () => void })
                   <ExternalLink size={12} />
                   View landing page
                 </a>
+              )}
+
+              {(recentChange || olderChanges.length > 0) && (
+                <div className="pt-3 border-t border-border/50">
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <ArrowRightLeft size={13} className="text-warning" />
+                    <span className="text-xs font-medium text-text/60 uppercase tracking-wide">Change History</span>
+                  </div>
+
+                  {recentChange ? (
+                    <div className="space-y-2">
+                      <ChangeEntry change={recentChange} />
+                      {olderChanges.length > 0 && (
+                        <details className="group">
+                          <summary className="text-xs text-text/40 cursor-pointer select-none hover:text-text/60 list-none flex items-center gap-1 mt-1">
+                            <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
+                            {olderChanges.length} earlier {olderChanges.length === 1 ? 'change' : 'changes'}
+                          </summary>
+                          <div className="space-y-2 mt-2">
+                            {olderChanges.map((c, i) => <ChangeEntry key={i} change={c} />)}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  ) : (
+                    <details className="group">
+                      <summary className="text-xs text-text/40 cursor-pointer select-none hover:text-text/60 list-none flex items-center gap-1">
+                        <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
+                        No recent changes · {olderChanges.length} earlier {olderChanges.length === 1 ? 'change' : 'changes'}
+                      </summary>
+                      <div className="space-y-2 mt-2">
+                        {olderChanges.map((c, i) => <ChangeEntry key={i} change={c} />)}
+                      </div>
+                    </details>
+                  )}
+                </div>
               )}
             </>
           )}
@@ -437,7 +515,7 @@ export function AdIntel() {
           <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
             <Zap size={16} className="text-info" />
             Recent Winners
-            <span className="text-xs text-text/40 font-normal">active 20–40 days</span>
+            <span className="text-xs text-text/40 font-normal">active 7–21 days</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {winnersRecent.map(w => (
@@ -461,7 +539,7 @@ export function AdIntel() {
           <h2 className="text-sm font-medium text-text-bright flex items-center gap-2 mb-4">
             <Trophy size={16} className="text-success" />
             All-Time Winners
-            <span className="text-xs text-text/40 font-normal">active 90–250 days</span>
+            <span className="text-xs text-text/40 font-normal">active 40+ days</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {winnersAllTime.map(w => (
