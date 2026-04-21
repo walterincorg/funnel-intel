@@ -168,10 +168,11 @@ def _solve_captcha() -> None:
 
     raw_text = resp.content[0].text.strip()
     log.info("[builtwith] Haiku response: %s", raw_text)
-    json_match = re.search(r"\[.*?\]", raw_text, re.DOTALL)
-    if not json_match:
+    # Use the LAST JSON array — Haiku sometimes self-corrects, emitting a second array
+    all_matches = re.findall(r"\[.*?\]", raw_text, re.DOTALL)
+    if not all_matches:
         raise RuntimeError(f"Could not parse captcha coords from: {raw_text!r}")
-    coords = json.loads(json_match.group(0))
+    coords = json.loads(all_matches[-1])
 
     cell_w = bbox["width"] / 4
     cell_h = bbox["height"] / 3
