@@ -254,6 +254,27 @@ def scrape_relationships(domain: str) -> list[dict[str, Any]]:
         raw = raw[len("result: "):]
 
     rows: list[dict] = json.loads(raw)
+
+    # Debug: when we got 0 rows, capture what the page actually shows so we can
+    # tell "legitimately empty" apart from "we hit a captcha/error page".
+    if not rows:
+        try:
+            probe_js = (
+                "JSON.stringify({"
+                "title: document.title,"
+                "h1: (document.querySelector('h1')||{}).innerText || null,"
+                "hasCaptcha: !!document.querySelector('#human-test-img'),"
+                "hasResultsTable: !!document.querySelector('table.table-sm'),"
+                "hasNoResults: /no results|no relationships|not found/i.test(document.body.innerText),"
+                "bodyPreview: document.body.innerText.slice(0, 400)"
+                "})"
+            )
+            probe = _run(["eval", probe_js], timeout=20)
+            if probe.startswith("result: "):
+                probe = probe[len("result: "):]
+            log.info("[builtwith] %s: empty-result page state: %s", domain, probe)
+        except Exception as e:
+            log.debug("[builtwith] %s: empty-result probe failed: %s", domain, e)
     total_elapsed = time.perf_counter() - total_start
     log.info("[builtwith] %s -> %d relationship rows (total %.1fs: open=%.1fs captcha=%.1fs eval=%.1fs)",
              domain, len(rows), total_elapsed, open_elapsed, captcha_elapsed, eval_elapsed,
