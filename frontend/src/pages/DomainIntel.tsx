@@ -8,167 +8,224 @@ function isNew(r: BuiltWithRelationship, prevRunAt: string | null): boolean {
   return !!r.first_seen_at && !!prevRunAt && new Date(r.first_seen_at) > new Date(prevRunAt)
 }
 
-interface RelatedGroup {
+// A single related domain inside a cluster.
+interface RelatedEntry {
   relatedDomain: string
-  sources: Set<string>           // competitor source_domains connecting to this related_domain
-  attributes: Set<string>        // distinct shared attribute values
-  rows: BuiltWithRelationship[]  // underlying rows, for expand details
-  firstDetectedMin: string | null
-  lastDetectedMax: string | null
+  attributes: Set<string>
+  firstDetected: string | null
+  lastDetected: string | null
+  rows: BuiltWithRelationship[]
   hasNew: boolean
+  active: boolean
+}
+
+// A group of competitors that all share at least one related domain.
+interface Cluster {
+  competitors: string[] // sorted
+  related: RelatedEntry[]
+  newCount: number
+  activeCount: number
   allInactive: boolean
 }
 
-function buildGroups(rows: BuiltWithRelationship[], prevRunAt: string | null): RelatedGroup[] {
-  const map = new Map<string, RelatedGroup>()
-
+function buildClusters(rows: BuiltWithRelationship[], prevRunAt: string | null): Cluster[] {
+  // Step 1: group rows by related_domain, collecting which competitors link to it.
+  const byRelated = new Map<string, RelatedEntry>()
   for (const r of rows) {
-    let g = map.get(r.related_domain)
-    if (!g) {
-      g = {
+    let entry = byRelated.get(r.related_domain)
+    if (!entry) {
+      entry = {
         relatedDomain: r.related_domain,
-        sources: new Set(),
         attributes: new Set(),
+        firstDetected: null,
+        lastDetected: null,
         rows: [],
-        firstDetectedMin: null,
-        lastDetectedMax: null,
         hasNew: false,
-        allInactive: true,
+        active: false,
       }
-      map.set(r.related_domain, g)
+      byRelated.set(r.related_domain, entry)
     }
-    g.sources.add(r.source_domain)
-    if (r.attribute_value) g.attributes.add(r.attribute_value)
-    g.rows.push(r)
-    if (r.first_detected) {
-      if (!g.firstDetectedMin || r.first_detected < g.firstDetectedMin) g.firstDetectedMin = r.first_detected
+    entry.rows.push(r)
+    if (r.attribute_value) entry.attributes.add(r.attribute_value)
+    if (r.first_detected && (!entry.firstDetected || r.first_detected < entry.firstDetected)) {
+      entry.firstDetected = r.first_detected
     }
-    if (r.last_detected) {
-      if (!g.lastDetectedMax || r.last_detected > g.lastDetectedMax) g.lastDetectedMax = r.last_detected
+    if (r.last_detected && (!entry.lastDetected || r.last_detected > entry.lastDetected)) {
+      entry.lastDetected = r.last_detected
     }
-    if (isNew(r, prevRunAt)) g.hasNew = true
-    if (checkActive(r.last_detected)) g.allInactive = false
+    if (isNew(r, prevRunAt)) entry.hasNew = true
+    if (checkActive(r.last_detected)) entry.active = true
   }
 
-  // Sort: most-shared first, then active, then alphabetical
-  return [...map.values()].sort((a, b) => {
-    if (a.sources.size !== b.sources.size) return b.sources.size - a.sources.size
-    if (a.allInactive !== b.allInactive) return a.allInactive ? 1 : -1
-    return a.relatedDomain.localeCompare(b.relatedDomain)
+  // Step 2: bucket related-entries by the exact set of competitors that link to them.
+  const clusters = new Map<string, Cluster>()
+  for (const entry of byRelated.values()) {
+    const competitorSet = [...new Set(entry.rows.map(r => r.source_domain))].sort()
+    const key = competitorSet.join('|')
+    let cluster = clusters.get(key)
+    if (!cluster) {
+      cluster = {
+        competitors: competitorSet,
+        related: [],
+        newCount: 0,
+        activeCount: 0,
+        allInactive: true,
+      }
+      clusters.set(key, cluster)
+    }
+    cluster.related.push(entry)
+    if (entry.hasNew) cluster.newCount += 1
+    if (entry.active) {
+      cluster.activeCount += 1
+      cluster.allInactive = false
+    }
+  }
+
+  // Sort clusters: multi-competitor first, then by #related desc, then alphabetic.
+  return [...clusters.values()].sort((a, b) => {
+    if ((a.competitors.length > 1) !== (b.competitors.length > 1)) {
+      return b.competitors.length - a.competitors.length
+    }
+    if (a.competitors.length !== b.competitors.length) {
+      return b.competitors.length - a.competitors.length
+    }
+    if (a.related.length !== b.related.length) return b.related.length - a.related.length
+    return a.competitors[0].localeCompare(b.competitors[0])
   })
 }
 
-function RelatedGroupCard({ group, prevRunAt }: { group: RelatedGroup; prevRunAt: string | null }) {
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const newRowCount = group.rows.filter(r => isNew(r, prevRunAt)).length
+function ClusterCard({
+  cluster,
+  activeOnly,
+  prevRunAt,
+}: {
+  cluster: Cluster
+  activeOnly: boolean
+  prevRunAt: string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const visibleRelated = useMemo(
+    () => (activeOnly ? cluster.related.filter(r => r.active) : cluster.related),
+    [cluster.related, activeOnly],
+  )
+  const isShared = cluster.competitors.length > 1
+  const displayCount = activeOnly ? cluster.activeCount : cluster.related.length
 
   return (
     <div
       className={cn(
-        'bg-bg-card border rounded-xl p-5',
-        group.allInactive ? 'border-border/40 opacity-60' : 'border-border',
+        'bg-bg-card border rounded-xl overflow-hidden transition-colors',
+        cluster.allInactive ? 'border-border/40 opacity-70' : 'border-border',
       )}
     >
-      <div className="flex items-start justify-between gap-4 mb-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <a
-              href={`https://${group.relatedDomain}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 font-mono text-accent hover:underline font-semibold"
-            >
-              {group.relatedDomain}
-              <ExternalLink size={11} />
-            </a>
-            {group.sources.size >= 2 && (
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-start justify-between gap-4 p-5 text-left hover:bg-bg-hover/30 transition-colors"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center flex-wrap gap-1.5 mb-2">
+            {isShared && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning">
-                <Users size={10} />
-                {group.sources.size} competitors
+                <Users size={11} />
+                {cluster.competitors.length} competitors share
               </span>
             )}
-            {group.hasNew && (
+            {cluster.newCount > 0 && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-info/10 text-info">
-                <Sparkles size={10} />
-                {newRowCount} new
+                <Sparkles size={11} />
+                {cluster.newCount} new
               </span>
             )}
-            {group.allInactive && (
+            {cluster.allInactive && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-text/5 text-text/40">inactive</span>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {[...group.sources].sort().map(src => (
+          <div className="flex flex-wrap gap-1.5">
+            {cluster.competitors.map(c => (
               <span
-                key={src}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono bg-bg-hover/60 text-text/70 border border-border/40"
+                key={c}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono bg-bg-hover/70 text-text-bright border border-border/50"
               >
-                {src}
+                {c}
               </span>
             ))}
           </div>
         </div>
-        <div className="text-right text-xs text-text/50 shrink-0">
-          <div>{group.attributes.size} shared attr{group.attributes.size !== 1 ? 's' : ''}</div>
-          <div>{group.rows.length} row{group.rows.length !== 1 ? 's' : ''}</div>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right">
+            <div className="text-lg font-semibold text-text-bright">{displayCount}</div>
+            <div className="text-xs text-text/50">related domain{displayCount !== 1 ? 's' : ''}</div>
+          </div>
+          <ChevronDown
+            size={18}
+            className={cn('text-text/40 transition-transform', open && 'rotate-180')}
+          />
         </div>
-      </div>
+      </button>
 
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {[...group.attributes].slice(0, 6).map(attr => (
-          <span
-            key={attr}
-            className="px-2 py-0.5 rounded text-[11px] font-mono bg-accent-dim/40 text-accent border border-accent/20"
-          >
-            {attr}
-          </span>
-        ))}
-        {group.attributes.size > 6 && (
-          <span className="px-2 py-0.5 rounded text-[11px] text-text/40">
-            +{group.attributes.size - 6} more
-          </span>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between text-xs text-text/50">
-        <div>
-          {group.firstDetectedMin && <span>First: {group.firstDetectedMin}</span>}
-          {group.firstDetectedMin && group.lastDetectedMax && <span className="mx-2">·</span>}
-          {group.lastDetectedMax && <span>Last: {group.lastDetectedMax}</span>}
-        </div>
-        <button
-          onClick={() => setDetailsOpen(o => !o)}
-          className="flex items-center gap-1 text-text/50 hover:text-text transition-colors"
-        >
-          <ChevronDown size={12} className={cn('transition-transform', detailsOpen && 'rotate-180')} />
-          Details
-        </button>
-      </div>
-
-      {detailsOpen && (
-        <div className="mt-3 pt-3 border-t border-border/40 overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-text/50 uppercase tracking-wide">
-                <th className="text-left py-1 pr-4">Competitor</th>
-                <th className="text-left py-1 pr-4">Shared attribute</th>
-                <th className="text-left py-1 pr-4">First</th>
-                <th className="text-left py-1 pr-4">Last</th>
-                <th className="text-left py-1">Overlap</th>
-              </tr>
-            </thead>
-            <tbody>
-              {group.rows.map(r => (
-                <tr key={r.id} className="border-t border-border/20">
-                  <td className="py-1.5 pr-4 font-mono text-text/70">{r.source_domain}</td>
-                  <td className="py-1.5 pr-4">{r.attribute_value ?? '—'}</td>
-                  <td className="py-1.5 pr-4 text-text/50">{r.first_detected ?? '—'}</td>
-                  <td className="py-1.5 pr-4 text-text/50">{r.last_detected ?? '—'}</td>
-                  <td className="py-1.5 text-text/50">{r.overlap_duration ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {open && (
+        <div className="border-t border-border/40">
+          {visibleRelated.length === 0 ? (
+            <p className="p-5 text-sm text-text/40 italic">No active related domains.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-bg-hover/30">
+                  <tr className="text-xs text-text/50 uppercase tracking-wide">
+                    <th className="text-left px-5 py-2">Related domain</th>
+                    <th className="text-left px-5 py-2">Shared attributes</th>
+                    <th className="text-left px-5 py-2">First</th>
+                    <th className="text-left px-5 py-2">Last</th>
+                    <th className="text-right px-5 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRelated.map(r => (
+                    <tr key={r.relatedDomain} className="border-t border-border/30 hover:bg-bg-hover/20">
+                      <td className="px-5 py-2">
+                        <a
+                          href={`https://${r.relatedDomain}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono text-accent hover:underline"
+                        >
+                          {r.relatedDomain}
+                          <ExternalLink size={10} />
+                        </a>
+                      </td>
+                      <td className="px-5 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {[...r.attributes].slice(0, 3).map(a => (
+                            <span
+                              key={a}
+                              className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-accent-dim/40 text-accent border border-accent/20"
+                            >
+                              {a}
+                            </span>
+                          ))}
+                          {r.attributes.size > 3 && (
+                            <span className="px-1.5 py-0.5 text-[11px] text-text/40">
+                              +{r.attributes.size - 3}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-2 text-text/60">{r.firstDetected ?? '—'}</td>
+                      <td className="px-5 py-2 text-text/60">{r.lastDetected ?? '—'}</td>
+                      <td className="px-5 py-2 text-right">
+                        {r.hasNew && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-info/10 text-info">
+                            <Sparkles size={9} />
+                            new
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -199,15 +256,23 @@ export function DomainIntel() {
 
   const prevRunAt = getPrevRunCutoff(runs ?? [])
 
-  const allGroups = useMemo(() => buildGroups(relationships ?? [], prevRunAt), [relationships, prevRunAt])
-  const visibleGroups = activeOnly ? allGroups.filter(g => !g.allInactive) : allGroups
+  const allClusters = useMemo(
+    () => buildClusters(relationships ?? [], prevRunAt),
+    [relationships, prevRunAt],
+  )
+  const visibleClusters = activeOnly
+    ? allClusters.filter(c => !c.allInactive)
+    : allClusters
 
   const totalNew = useMemo(
-    () => (relationships ?? []).filter(r => checkActive(r.last_detected) && isNew(r, prevRunAt)).length,
+    () =>
+      (relationships ?? []).filter(
+        r => checkActive(r.last_detected) && isNew(r, prevRunAt),
+      ).length,
     [relationships, prevRunAt],
   )
 
-  const sharedCount = visibleGroups.filter(g => g.sources.size >= 2).length
+  const sharedClusters = visibleClusters.filter(c => c.competitors.length > 1).length
 
   return (
     <div>
@@ -222,27 +287,29 @@ export function DomainIntel() {
         </button>
       </div>
       <p className="text-sm text-text/60 mb-6">
-        BuiltWith relationships grouped by related domain — the same domain connected to multiple
-        competitors is a strong signal they share an operator or network.
+        Competitors grouped by the domains they share tracking attributes with. Multi-competitor
+        clusters are likely the same operator or a shared advertising network.
       </p>
 
       {totalNew > 0 && (
         <div className="flex items-center gap-2 p-3 mb-6 rounded-lg bg-info/5 border border-info/20">
           <Sparkles size={15} className="text-info shrink-0" />
           <p className="text-sm text-info">
-            <span className="font-semibold">{totalNew} new row{totalNew !== 1 ? 's' : ''}</span>
-            {' '}appeared in the latest scan.
+            <span className="font-semibold">{totalNew} new row{totalNew !== 1 ? 's' : ''}</span>{' '}
+            appeared in the latest scan.
           </p>
         </div>
       )}
 
-      {!isLoading && allGroups.length > 0 && (
+      {!isLoading && allClusters.length > 0 && (
         <div className="flex items-center justify-between mb-4 text-sm text-text/60">
           <div className="flex items-center gap-4">
-            <span>{visibleGroups.length} related domain{visibleGroups.length !== 1 ? 's' : ''}</span>
-            {sharedCount > 0 && (
+            <span>
+              {visibleClusters.length} cluster{visibleClusters.length !== 1 ? 's' : ''}
+            </span>
+            {sharedClusters > 0 && (
               <span className="text-warning">
-                {sharedCount} shared across multiple competitors
+                {sharedClusters} multi-competitor
               </span>
             )}
           </div>
@@ -260,17 +327,22 @@ export function DomainIntel() {
 
       {isLoading && <p className="text-text/50 text-sm">Loading relationships...</p>}
 
-      {!isLoading && allGroups.length === 0 && (
+      {!isLoading && allClusters.length === 0 && (
         <div className="text-center py-16 text-text/50">
           <p className="text-lg font-medium mb-2">No relationship data yet</p>
           <p className="text-sm">Click "Re-scan All" to scrape BuiltWith for connected domains.</p>
         </div>
       )}
 
-      {!isLoading && visibleGroups.length > 0 && (
+      {!isLoading && visibleClusters.length > 0 && (
         <div className="space-y-3">
-          {visibleGroups.map(g => (
-            <RelatedGroupCard key={g.relatedDomain} group={g} prevRunAt={prevRunAt} />
+          {visibleClusters.map(c => (
+            <ClusterCard
+              key={c.competitors.join('|')}
+              cluster={c}
+              activeOnly={activeOnly}
+              prevRunAt={prevRunAt}
+            />
           ))}
         </div>
       )}
