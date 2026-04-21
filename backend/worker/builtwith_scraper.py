@@ -96,14 +96,20 @@ def _run(args: list[str], timeout: int = 15) -> str:
 
 
 def _has_captcha() -> bool:
-    # First eval after open can be very slow (page still stabilizing). Some domains
-    # take 28s, others 45s+. If it hangs past 90s, return False and let eval try.
-    try:
-        out = _run(["eval", "document.querySelector('#human-test-img') ? '1' : '0'"], timeout=90)
-    except subprocess.TimeoutExpired:
-        log.warning("[builtwith] _has_captcha timed out — assuming no captcha")
-        return False
-    return out.strip().endswith("1")
+    # browser-use's CLI has a 60s internal socket recv timeout. On a freshly
+    # navigated page the first eval often trips it. Retry once on failure.
+    js = "document.querySelector('#human-test-img') ? '1' : '0'"
+    for attempt in (1, 2):
+        try:
+            out = _run(["eval", js], timeout=90)
+            return out.strip().endswith("1")
+        except (subprocess.TimeoutExpired, RuntimeError) as e:
+            if attempt == 2:
+                log.warning("[builtwith] _has_captcha failed after 2 tries (%s) — assuming no captcha", e)
+                return False
+            log.debug("[builtwith] _has_captcha attempt 1 failed (%s), retrying after 3s", type(e).__name__)
+            time.sleep(3)
+    return False
 
 
 def _captcha_word() -> str:
@@ -233,8 +239,12 @@ def scrape_relationships(domain: str) -> list[dict[str, Any]]:
 
     open_start = time.perf_counter()
     _run(["open", url], timeout=90)
+    # Let the page settle — browser-use's CLI has a 60s socket recv timeout
+    # internally, and the first eval after navigation frequently trips it
+    # because the daemon is still busy processing async loads.
+    time.sleep(4)
     open_elapsed = time.perf_counter() - open_start
-    log.info("[builtwith] %s: open phase took %.1fs", domain, open_elapsed,
+    log.info("[builtwith] %s: open phase took %.1fs (incl. 4s settle)", domain, open_elapsed,
              extra={"duration_ms": round(open_elapsed * 1000)})
 
     captcha_phase_start = time.perf_counter()
@@ -244,7 +254,13 @@ def scrape_relationships(domain: str) -> list[dict[str, Any]]:
              extra={"duration_ms": round(captcha_elapsed * 1000)})
 
     eval_start = time.perf_counter()
-    raw = _run(["eval", _SCRAPER_JS], timeout=45)
+    # Retry once on failure — same socket-timeout flakiness as _has_captcha.
+    try:
+        raw = _run(["eval", _SCRAPER_JS], timeout=90)
+    except (subprocess.TimeoutExpired, RuntimeError) as e:
+        log.debug("[builtwith] scraper eval attempt 1 failed (%s), retrying", type(e).__name__)
+        time.sleep(3)
+        raw = _run(["eval", _SCRAPER_JS], timeout=90)
     eval_elapsed = time.perf_counter() - eval_start
     log.info("[builtwith] %s: eval phase took %.1fs (raw=%d bytes)",
              domain, eval_elapsed, len(raw),
