@@ -90,21 +90,89 @@ const PAD = { top: 8, right: 20, bottom: 28, left: 44 }
 const LEGEND_ROW_H = 14
 const LEGEND_COLS = 3
 
+// Trace plan identity across renames so the chart shows continuous lines
+// instead of fragmenting into one series per historical name.
+function buildMergedSeries(snapshots: PricingSnapshot[]): { name: string; values: (number | null)[] }[] {
+  if (snapshots.length === 0) return []
+
+  type Identity = { name: string; values: (number | null)[] }
+  const identities: Identity[] = []
+  // maps current-snapshot plan name → identity
+  let nameToId = new Map<string, Identity>()
+
+  for (const plan of (snapshots[0].plans ?? [])) {
+    const id: Identity = { name: plan.name, values: [parsePrice(plan.price)] }
+    identities.push(id)
+    nameToId.set(plan.name, id)
+  }
+
+  for (let i = 1; i < snapshots.length; i++) {
+    const prevPlans = snapshots[i - 1].plans ?? []
+    const currPlans = snapshots[i].plans ?? []
+    const prevMap = new Map(prevPlans.map(p => [p.name, p]))
+    const currMap = new Map(currPlans.map(p => [p.name, p]))
+
+    const nextNameToId = new Map<string, Identity>()
+    const matched = new Set<Identity>()
+
+    // Pass 1: exact name match (name unchanged, just update price)
+    for (const [name, currPlan] of currMap) {
+      if (prevMap.has(name)) {
+        const id = nameToId.get(name)
+        if (id) {
+          id.values.push(parsePrice(currPlan.price))
+          id.name = name
+          nextNameToId.set(name, id)
+          matched.add(id)
+        }
+      }
+    }
+
+    // Pass 2: rename detection — unmatched prev + unmatched curr at same price
+    const unmatchedPrev = [...prevMap.entries()].filter(([n]) => !currMap.has(n))
+    const unmatchedCurr = [...currMap.entries()].filter(([n]) => !prevMap.has(n) && !nextNameToId.has(n))
+
+    for (const [prevName] of unmatchedPrev) {
+      const prevPrice = parsePrice(prevMap.get(prevName)?.price)
+      if (prevPrice === null) continue
+      const idx = unmatchedCurr.findIndex(([, cp]) => parsePrice(cp.price) === prevPrice)
+      if (idx !== -1) {
+        const [currName, currPlan] = unmatchedCurr.splice(idx, 1)[0]
+        const id = nameToId.get(prevName)
+        if (id) {
+          id.values.push(parsePrice(currPlan.price))
+          id.name = currName  // update to latest name
+          nextNameToId.set(currName, id)
+          matched.add(id)
+        }
+      }
+    }
+
+    // Push null for identities absent this snapshot
+    for (const id of identities) {
+      if (!matched.has(id) && id.values.length === i) id.values.push(null)
+    }
+
+    // New plans with no prior identity
+    for (const [currName, currPlan] of currMap) {
+      if (!nextNameToId.has(currName)) {
+        const id: Identity = { name: currName, values: new Array(i).fill(null) }
+        id.values.push(parsePrice(currPlan.price))
+        identities.push(id)
+        nextNameToId.set(currName, id)
+      }
+    }
+
+    nameToId = nextNameToId
+  }
+
+  return identities.filter(id => id.values.some(v => v !== null))
+}
+
 function PriceChart({ snapshots, changedIndices }: { snapshots: PricingSnapshot[]; changedIndices: Set<number> }) {
   if (snapshots.length < 2) return null
 
-  // Collect all plan names across all snapshots
-  const allPlans = Array.from(new Set(snapshots.flatMap(s => (s.plans ?? []).map(p => p.name))))
-
-  // Build series: planName -> [price | null] per snapshot
-  const series = allPlans.map(name => ({
-    name,
-    values: snapshots.map(s => {
-      const plan = (s.plans ?? []).find(p => p.name === name)
-      return plan ? parsePrice(plan.price) : null
-    }),
-  })).filter(s => s.values.some(v => v !== null))
-
+  const series = buildMergedSeries(snapshots)
   if (series.length === 0) return null
 
   const allValues = series.flatMap(s => s.values).filter((v): v is number => v !== null)
