@@ -84,8 +84,8 @@ function detectChanges(snapshots: PricingSnapshot[]): PriceChange[] {
 // --- SVG Line Chart ---
 
 const PLAN_COLORS = ['#818cf8', '#34d399', '#fbbf24', '#60a5fa', '#f87171', '#c084fc']
-const CHART_W = 600
-const CHART_AREA_H = 120  // height of just the plotting area + axes
+const CHART_W = 560
+const CHART_AREA_H = 90  // height of just the plotting area + axes
 const PAD = { top: 8, right: 20, bottom: 28, left: 44 }
 const LEGEND_ROW_H = 14
 const LEGEND_COLS = 3
@@ -214,7 +214,7 @@ function PriceChart({ snapshots, changedIndices }: { snapshots: PricingSnapshot[
   const colW = (CHART_W - PAD.left) / LEGEND_COLS
 
   return (
-    <svg viewBox={`0 0 ${CHART_W} ${totalH}`} width="100%" className="block">
+    <svg viewBox={`0 0 ${CHART_W} ${totalH}`} width="100%" style={{ maxWidth: `${CHART_W}px` }} className="block">
       {/* Y axis gridlines */}
       {[0, 0.25, 0.5, 0.75, 1].map(t => {
         const y = PAD.top + innerH * (1 - t)
