@@ -195,7 +195,7 @@ def scrape_relationships(domain: str) -> list[dict[str, Any]]:
     url = f"https://builtwith.com/relationships/{domain}"
     log.info("[builtwith] Opening %s", url)
 
-    _run(["open", url], timeout=30)
+    _run(["open", url], timeout=90)
     _solve_captcha()
 
     raw = _run(["eval", _SCRAPER_JS])
