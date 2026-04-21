@@ -96,8 +96,13 @@ def _run(args: list[str], timeout: int = 15) -> str:
 
 
 def _has_captcha() -> bool:
-    # First eval after open can be slow (page still stabilizing). Give it room.
-    out = _run(["eval", "document.querySelector('#human-test-img') ? '1' : '0'"], timeout=45)
+    # First eval after open can be very slow (page still stabilizing). Some domains
+    # take 28s, others 45s+. If it hangs past 90s, return False and let eval try.
+    try:
+        out = _run(["eval", "document.querySelector('#human-test-img') ? '1' : '0'"], timeout=90)
+    except subprocess.TimeoutExpired:
+        log.warning("[builtwith] _has_captcha timed out — assuming no captcha")
+        return False
     return out.strip().endswith("1")
 
 
