@@ -125,17 +125,8 @@ def _captcha_word() -> str:
     raise RuntimeError("Could not extract captcha word from page")
 
 
-def _solve_captcha() -> None:
-    captcha_start = time.perf_counter()
-    # Skipping the pre-wait — browser-use `wait selector` ignores --timeout and
-    # hangs for the full subprocess timeout instead. _has_captcha() is sufficient.
-    if not _has_captcha():
-        log.info("[builtwith] No captcha (check took %.1fs)",
-                 time.perf_counter() - captcha_start)
-        return
-
-    log.info("[builtwith] Captcha detected, solving...")
-
+def _attempt_captcha_solve(attempt: int) -> None:
+    """One round of captcha solving. Raises if something unrecoverable happens."""
     state = _run(["state"])
     img_index = None
     for line in state.splitlines():
@@ -153,7 +144,6 @@ def _solve_captcha() -> None:
         shot_path = f.name
     _run(["screenshot", shot_path])
 
-    # Crop to just the captcha grid so Claude gets a clean 4x3 grid image
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         crop_path = f.name
     img = Image.open(shot_path)
@@ -167,7 +157,7 @@ def _solve_captcha() -> None:
     cropped.save(crop_path)
 
     word = _captcha_word()
-    log.info("[builtwith] Captcha word: %s", word)
+    log.info("[builtwith] Captcha attempt %d: word=%s", attempt, word)
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     with open(crop_path, "rb") as f:
@@ -175,7 +165,6 @@ def _solve_captcha() -> None:
     os.unlink(crop_path)
 
     haiku_start = time.perf_counter()
-    log.debug("[builtwith] Calling Haiku for captcha coords (img=%d bytes)", len(img_b64))
     resp = client.messages.create(
         model=CAPTCHA_MODEL,
         max_tokens=100,
@@ -206,7 +195,6 @@ def _solve_captcha() -> None:
     log.info("[builtwith] Haiku responded in %.1fs: %s",
              haiku_elapsed, raw_text,
              extra={"duration_ms": round(haiku_elapsed * 1000)})
-    # Use the LAST JSON array — Haiku sometimes self-corrects, emitting a second array
     all_matches = re.findall(r"\[.*?\]", raw_text, re.DOTALL)
     if not all_matches:
         raise RuntimeError(f"Could not parse captcha coords from: {raw_text!r}")
@@ -222,13 +210,39 @@ def _solve_captcha() -> None:
         log.info("[builtwith] Clicked captcha cell row=%d col=%d at (%d,%d)",
                  c["row"], c["col"], x, y)
 
-    # Brief pause for the page to re-render after captcha clicks. We can't use
-    # `browser-use wait selector` because it ignores --timeout and hangs.
+    # Let the page re-render so the next _has_captcha sees fresh state.
     time.sleep(2)
 
-    log.info("[builtwith] Captcha solved in %.1fs total",
-             time.perf_counter() - captcha_start,
-             extra={"duration_ms": round((time.perf_counter() - captcha_start) * 1000)})
+
+def _solve_captcha(max_attempts: int = 3) -> None:
+    captcha_start = time.perf_counter()
+    if not _has_captcha():
+        log.info("[builtwith] No captcha (check took %.1fs)",
+                 time.perf_counter() - captcha_start)
+        return
+
+    log.info("[builtwith] Captcha detected, solving...")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _attempt_captcha_solve(attempt)
+        except Exception:
+            log.exception("[builtwith] Captcha attempt %d raised", attempt)
+            if attempt == max_attempts:
+                raise
+            continue
+
+        # Verify success — BuiltWith removes the captcha img when it's solved.
+        if not _has_captcha():
+            log.info("[builtwith] Captcha verified solved on attempt %d (%.1fs total)",
+                     attempt, time.perf_counter() - captcha_start,
+                     extra={"duration_ms": round((time.perf_counter() - captcha_start) * 1000)})
+            return
+        log.warning("[builtwith] Captcha still present after attempt %d — retrying", attempt)
+
+    # Out of attempts. Don't raise — let the caller see the empty-result page
+    # and move on. Losing one domain is better than failing the whole run.
+    log.warning("[builtwith] Gave up on captcha after %d attempts (%.1fs)",
+                max_attempts, time.perf_counter() - captcha_start)
 
 
 def scrape_relationships(domain: str) -> list[dict[str, Any]]:
