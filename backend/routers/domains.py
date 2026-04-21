@@ -146,7 +146,7 @@ def domain_stats():
 
 
 @router.get("/relationships", response_model=list[BuiltWithRelationshipOut])
-def list_relationships(competitor_id: str | None = None, days: int | None = None, limit: int = 200):
+def list_relationships(competitor_id: str | None = None, days: int | None = None, limit: int = 5000):
     """Get BuiltWith relationship rows, optionally filtered by competitor or recency."""
     q = (
         get_db()
