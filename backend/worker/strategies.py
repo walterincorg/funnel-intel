@@ -18,7 +18,12 @@ def build_traversal_prompt(
     config: dict | None = None,
     available_files: list[str] | None = None,
 ) -> str:
-    """Build the browser-use agent prompt for freeform funnel traversal."""
+    """Build the natural-language instruction passed to Stagehand's
+    autonomous agent during a recording run. Wording still references
+    "output a JSON object" per step — Stagehand's agent history captures
+    those messages, and we also reconstruct structured steps from its
+    action trajectory regardless.
+    """
     cfg = config or get_default_strategy()
     stop_keywords = ", ".join(cfg.get("stop_at", ["paywall"]))
     max_steps = cfg.get("max_steps", 100)
@@ -76,45 +81,6 @@ After the last step, output a summary line:
 {files_block}"""
 
 
-def build_guided_prompt(competitor_name: str, funnel_url: str,
-                        baseline_steps: list[dict]) -> str:
-    """Build a guided replay prompt using a baseline run."""
-    steps_script = []
-    for s in baseline_steps:
-        q = s.get("question_text", "")
-        action = s.get("action_taken", "")
-        steps_script.append(f"  Step {s['step_number']}: expect '{q}' → {action}")
-
-    script_text = "\n".join(steps_script)
-
-    return f"""You are re-traversing the marketing funnel for "{competitor_name}".
-
-START URL: {funnel_url}
-
-You have a BASELINE of what to expect. Follow this script:
-{script_text}
-
-At each step:
-1. Verify the page roughly matches the expected question/content.
-2. If it matches: execute the prescribed action and move on.
-3. If it's slightly different (reworded but same intent): execute the action, note the difference.
-4. If it's completely different: report the drift and continue exploring freely.
-
-IMPORTANT — OUTPUT FORMAT:
-For EACH step, output a JSON object on its own line with the ACTUAL question
-and answer options visible on the page (not the baseline values). Include a
-`drift` field so we can tell how closely the live step matches the script:
-
-{{"step_number": N, "step_type": "question|info|input|pricing|discount", "question_text": "...", "answer_options": [{{"label": "...", "value": "..."}}], "action_taken": "clicked X", "url": "current URL", "drift": "none|minor|major", "expected": "baseline question text", "actual": "what you actually saw", "log": "short human-readable summary"}}
-
-The "log" field is IMPORTANT — a casual one-line human comment on what you saw
-and why you picked what you did.
-
-If you hit a PRICING page, output:
-{{"step_number": N, "step_type": "pricing", "plans": [{{"name": "...", "price": "...", "currency": "...", "period": "...", "features": ["..."]}}], "discounts": [{{"type": "...", "amount": "...", "original_price": "...", "discounted_price": "...", "conditions": "..."}}], "trial_info": {{"has_trial": true/false, "trial_days": N, "trial_price": "..."}}, "url": "current URL", "drift": "none|minor|major", "log": "..."}}
-
-After the last step, output a summary line:
-{{"summary": true, "total_steps": N, "stop_reason": "paywall|funnel_reset|end_of_funnel|max_steps"}}
-
-STOP at the same point as the baseline, or earlier if you hit a gate.
-"""
+# NOTE: `build_guided_prompt` was removed when traversal switched from
+# browser-use to Stagehand. Guided replay is now handled deterministically by
+# the recipe/replay system in `stagehand_driver.run_replay`, not by a prompt.
