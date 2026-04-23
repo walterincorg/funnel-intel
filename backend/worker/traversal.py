@@ -7,6 +7,8 @@ import logging
 import os
 import re
 import time
+import tempfile
+import shutil
 from pathlib import Path
 
 from browser_use import Agent, Browser, BrowserProfile
@@ -122,12 +124,16 @@ async def run_traversal(
     traversal_start = time.perf_counter()
 
     headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
+    # Pydantic 2.12+ broke the field_validator that auto-creates user_data_dir,
+    # so we must pass it explicitly. Each scan gets its own temp dir.
+    _scan_user_data_dir = tempfile.mkdtemp(prefix="funnel-scan-")
     browser = Browser(
         browser_profile=BrowserProfile(
             headless=headless,
             chromium_sandbox=False,
             args=["--disable-dev-shm-usage", "--disable-gpu"],
             is_local=True,
+            user_data_dir=_scan_user_data_dir,
             wait_for_network_idle_page_load_time=2.0,
             wait_between_actions=0.5,
         ),
