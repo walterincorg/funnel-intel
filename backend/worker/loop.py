@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 import os
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -292,6 +293,13 @@ def main():
         job = pick_job()
         if job:
             process_job(job)
+            # browser-use's bubus EventBus accumulates stale asyncio state between
+            # successive asyncio.run() calls in the same process, causing Chrome to
+            # fail on the second scan (30s timeout on CDP port bind).  The cleanest
+            # fix is to exit after each scan so systemd restarts with a clean slate.
+            # RestartSec=2 in the unit file keeps the gap brief.
+            log.info("Worker %s exiting after scan for clean restart", WORKER_ID)
+            sys.exit(0)
         else:
             # Background ad/domain loops only run on the primary worker to
             # avoid triple-firing when multiple workers are deployed.
