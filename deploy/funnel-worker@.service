@@ -9,8 +9,8 @@ WorkingDirectory=/opt/funnel-intel
 EnvironmentFile=/opt/funnel-intel/.env
 Environment=WORKER_ID=%i
 ExecStart=/opt/funnel-intel/.venv/bin/python -m backend.worker.loop
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
