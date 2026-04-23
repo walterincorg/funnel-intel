@@ -7,7 +7,7 @@ def get_default_strategy() -> dict:
     """Return a sensible default answer strategy."""
     return {
         "approach": "middle",
-        "stop_at": ["email_verification", "paywall"],
+        "stop_at": ["paywall"],
         "max_steps": 100,
     }
 
@@ -48,10 +48,12 @@ INSTRUCTIONS:
    - "middle": pick the middle/most common option
    - "random": pick randomly
 4. Continue through the funnel step by step.
-5. You may freely fill in forms (name, email, phone, etc.) with fake data to continue the funnel.
-6. STOP ONLY when you hit one of these hard blockers: {stop_keywords}
-   - "paywall": a payment form that requires real payment to proceed
-   Do NOT stop for email fields — fill them in with fake data (e.g. test@example.com) and keep going.
+5. You may freely fill in forms (name, email, phone, age, weight, etc.) with fake but plausible data to continue the funnel.
+   - Email fields: always enter a fake address like jane.doe@example.com and submit — do NOT stop.
+   - If a screen says "check your inbox" or "click the link we sent you": try clicking any "resend" or "skip" option first. If none exist, stop with stop_reason "email_verification".
+6. STOP ONLY when you hit: {stop_keywords}
+   - "paywall": a hard payment wall requiring real payment to proceed.
+     Before stopping, scroll down and look for a "skip", "maybe later", or "no thanks" link — click it and keep going if it exists.
 7. Maximum {max_steps} steps.
 
 IMPORTANT BROWSING RULES:
@@ -116,5 +118,8 @@ If you hit a PRICING page, output:
 After the last step, output a summary line:
 {{"summary": true, "total_steps": N, "stop_reason": "paywall|funnel_reset|end_of_funnel|max_steps"}}
 
-STOP at the same point as the baseline, or earlier if you hit a gate.
+STOP CONDITIONS (same as freeform):
+- Fill in any email/name/phone fields with fake data (e.g. jane.doe@example.com) and keep going.
+- Stop only if you hit a hard payment wall with no skip option (stop_reason "paywall"), or a genuine inbox-verification screen with no way around it (stop_reason "email_verification").
+- If the funnel extends beyond the baseline, keep going until you reach a natural end or a stop condition.
 """

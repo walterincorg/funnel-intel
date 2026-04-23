@@ -214,7 +214,15 @@ async def run_traversal(
         result = await agent.run()
         raw = _extract_all_content(result)
     finally:
-        await browser.stop()
+        try:
+            await asyncio.wait_for(browser.stop(), timeout=15)
+        except (asyncio.TimeoutError, Exception):
+            log.warning("browser.stop() timed out or errored — Chrome process may be orphaned")
+        # Clean up per-scan user data dir regardless of how the browser exited
+        try:
+            shutil.rmtree(_scan_user_data_dir, ignore_errors=True)
+        except Exception:
+            pass
 
     # Parse structured output from extracted content (highest quality, most structured)
     parsed = _parse_json_lines(raw)
