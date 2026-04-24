@@ -123,3 +123,60 @@ STOP CONDITIONS (same as freeform):
 - Stop only if you hit a hard payment wall with no skip option (stop_reason "paywall"), or a genuine inbox-verification screen with no way around it (stop_reason "email_verification").
 - If the funnel extends beyond the baseline, keep going until you reach a natural end or a stop condition.
 """
+
+
+def build_single_step_patch_prompt(
+    recorded_intent: str | None,
+    recorded_question_text: str | None = None,
+    recorded_target_text: str | None = None,
+    recorded_input_value: str | None = None,
+    current_url: str | None = None,
+) -> str:
+    """Prompt for a 1-step browser-use Agent rescuing a scripted replay.
+
+    The agent sees the live page mid-funnel. The scripted replay engine already
+    failed to match the recorded selector, so we tell the agent exactly what
+    intent we were trying to execute and ask it to complete that one step —
+    nothing more. The replay engine will resume scripted playback from the
+    next step.
+    """
+    hint_lines = []
+    if recorded_question_text:
+        hint_lines.append(f"Expected question on this page: \"{recorded_question_text}\"")
+    if recorded_target_text:
+        hint_lines.append(f"Expected to click something labelled: \"{recorded_target_text}\"")
+    if recorded_input_value is not None:
+        hint_lines.append(f"Expected to fill a field with: \"{recorded_input_value}\"")
+    if recorded_intent:
+        hint_lines.append(f"Recorded intent: {recorded_intent}")
+    if current_url:
+        hint_lines.append(f"Current URL: {current_url}")
+
+    hints = "\n".join(f"- {line}" for line in hint_lines) or "- (no recorded hints)"
+
+    return f"""You are repairing ONE step of a recorded funnel replay for a competitor analysis tool.
+
+A deterministic Playwright script was walking a saved funnel recording and
+failed to locate the expected element on the current page. Your ENTIRE job is
+to complete this single page correctly, then stop. Do NOT advance past this
+page — another system will take over.
+
+WHAT THE RECORDING EXPECTED:
+{hints}
+
+RULES:
+1. Look at the current page. Figure out which element matches the recorded
+   intent (the page likely changed slightly — relabelled button, new option,
+   reordered choices).
+2. Perform exactly ONE action (click OR fill) that progresses the funnel past
+   this page. Prefer matching the semantic intent over the literal text.
+3. After that action completes, stop. Do not explore, do not fill follow-up
+   screens, do not click through to the next page's submit button.
+4. When you stop, write a memory line of the form:
+     Step {{N}}: '<actual question text>' - clicked '<label>'     OR
+     Step {{N}}: '<actual question text>' - entered '<value>'
+   Use real quoted strings so the replay engine can parse what you did.
+5. If the page is fundamentally the wrong page (funnel reset, paywall,
+   verification screen), report that in your memory instead of forcing an
+   action.
+"""

@@ -69,7 +69,7 @@ export interface ScanStep {
   action_taken: string | null
   url: string | null
   screenshot_path: string | null
-  metadata: Record<string, unknown> | null
+  metadata: (Record<string, unknown> & { replay_mode?: 'scripted' | 'patched' }) | null
   created_at: string
 }
 
@@ -286,6 +286,44 @@ export interface Version {
   deployed_at: string
 }
 
+// --- Funnel recordings (scripted replay) ---
+
+export interface ReplayCost {
+  total_usd: number
+  baseline_usd: number
+  saved_usd: number
+  saved_pct: number
+  patches: number
+  patch_cost_usd: number
+  pricing_extract_usd: number
+}
+
+export interface ReplayActionLogEntry {
+  step_number: number
+  step_type: string
+  action_type: 'click' | 'fill' | 'navigate' | 'extract' | 'stop'
+  target_text: string | null
+  selector: string | null
+  selector_strategy: string
+  input_value: string | null
+  url_before: string | null
+  url_after: string | null
+  question_text: string | null
+  action_description: string | null
+  patched?: boolean
+}
+
+export interface FunnelRecording {
+  competitor_id: string
+  trace_path: string | null
+  trace_url: string | null
+  action_log: ReplayActionLogEntry[]
+  captured_at: string | null
+  patch_count: number
+  is_stale: boolean
+  updated_at: string | null
+}
+
 // --- API Functions ---
 
 export const api = {
@@ -298,6 +336,10 @@ export const api = {
     request<Competitor>(`/competitors/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteCompetitor: (id: string) =>
     request<void>(`/competitors/${id}`, { method: 'DELETE' }),
+  getCompetitorRecording: (id: string) =>
+    request<FunnelRecording>(`/competitors/${id}/recording`),
+  deleteCompetitorRecording: (id: string) =>
+    request<void>(`/competitors/${id}/recording`, { method: 'DELETE' }),
 
   // Scans
   listScans: (competitorId?: string) =>

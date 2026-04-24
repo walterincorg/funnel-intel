@@ -1,9 +1,68 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, ChevronDown, ChevronRight, MessageSquare, CreditCard, FormInput, Info, Tag, ScrollText } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, MessageSquare, CreditCard, FormInput, Info, Tag, ScrollText, Zap, Wand2, Bot, FileArchive } from 'lucide-react'
 import { api, type ScanStep, type ProgressLogEntry } from '@/api/client'
 import { cn, formatDate } from '@/lib/utils'
+
+type ReplayMode = 'scripted' | 'patched' | 'full_llm'
+
+interface ReplayCost {
+  total_usd: number
+  baseline_usd: number
+  saved_usd: number
+  saved_pct: number
+  patches: number
+  patch_cost_usd: number
+  pricing_extract_usd: number
+}
+
+function ModeBadge({ mode, patches }: { mode: ReplayMode; patches: number }) {
+  if (mode === 'full_llm') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full bg-info/10 text-info font-medium"
+        title="Full LLM traversal (no recording yet or escalation)"
+      >
+        <Bot size={12} /> Full LLM
+      </span>
+    )
+  }
+  if (mode === 'patched') {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning font-medium"
+        title="Scripted replay with one or more single-step LLM patches on the shared browser"
+      >
+        <Wand2 size={12} /> Scripted · {patches} LLM patch{patches === 1 ? '' : 'es'}
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full bg-success/10 text-success font-medium"
+      title="Deterministic Playwright replay — zero LLM calls"
+    >
+      <Zap size={12} /> Scripted
+    </span>
+  )
+}
+
+function StepModeTag({ mode }: { mode?: 'scripted' | 'patched' }) {
+  if (!mode) return null
+  if (mode === 'patched') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/30">
+        <Wand2 size={10} /> patched
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-success/10 text-success border border-success/30">
+      <Zap size={10} /> scripted
+    </span>
+  )
+}
 
 function StepIcon({ type }: { type: string }) {
   switch (type) {
@@ -27,9 +86,13 @@ function LogTypeIcon({ type }: { type: string }) {
 
 function StepRow({ step }: { step: ScanStep }) {
   const [expanded, setExpanded] = useState(false)
+  const replayMode = step.metadata?.replay_mode as 'scripted' | 'patched' | undefined
 
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div className={cn(
+      'border-b border-border last:border-b-0',
+      replayMode === 'patched' && 'bg-warning/[0.04]'
+    )}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-bg-hover/50 transition-colors"
@@ -48,6 +111,7 @@ function StepRow({ step }: { step: ScanStep }) {
             {step.action_taken}
           </span>
         )}
+        <StepModeTag mode={replayMode} />
         <ChevronRight size={14} className={cn(
           'shrink-0 text-text/30 transition-transform',
           expanded && 'rotate-90'
@@ -105,6 +169,13 @@ export function ScanDetail() {
     enabled: !!id,
   })
 
+  const { data: recording } = useQuery({
+    queryKey: ['recording', scan?.competitor_id],
+    queryFn: () => api.getCompetitorRecording(scan!.competitor_id),
+    enabled: !!scan?.competitor_id,
+    retry: false,
+  })
+
   if (loadingScan || loadingSteps) {
     return <div className="text-text/50 py-12 text-center">Loading...</div>
   }
@@ -113,8 +184,14 @@ export function ScanDetail() {
     return <div className="text-text/50 py-12 text-center">Scan not found</div>
   }
 
-  const driftSummary = (scan.summary as Record<string, unknown> | null)?.drift_summary as string | undefined
+  const summary = (scan.summary ?? {}) as Record<string, unknown>
+  const driftSummary = summary.drift_summary as string | undefined
+  const mode = ((summary.mode as ReplayMode | undefined) ??
+    (recording ? 'scripted' : 'full_llm')) as ReplayMode
+  const patchCount = (summary.patch_count as number | undefined) ?? 0
+  const cost = summary.cost as ReplayCost | undefined
   const progressLog = scan.progress_log ?? []
+  const patchedSteps = (steps ?? []).filter(s => s.metadata?.replay_mode === 'patched')
 
   return (
     <div>
@@ -150,6 +227,7 @@ export function ScanDetail() {
                   {scan.drift_level} drift
                 </span>
               )}
+              {scan.status === 'completed' && <ModeBadge mode={mode} patches={patchCount} />}
             </div>
           </div>
           <div className="text-right text-xs text-text/50 space-y-1">
@@ -192,6 +270,92 @@ export function ScanDetail() {
           </div>
         )}
       </div>
+
+      {/* Replay summary cards — cost, drift, recording. Only shown when we
+          have signal (i.e. a completed run or an existing recording). */}
+      {scan.status === 'completed' && (cost || recording) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          {cost && (
+            <div className="bg-bg-card rounded-xl border border-success/30 p-5">
+              <div className="text-xs uppercase tracking-wide text-text/50 mb-2">Cost this run</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-semibold text-text-bright">
+                  ${cost.total_usd.toFixed(2)}
+                </span>
+                <span className="text-sm text-text/40 line-through">
+                  ${cost.baseline_usd.toFixed(2)}
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-success">
+                {cost.saved_pct.toFixed(1)}% saved vs full LLM
+              </div>
+              <div className="mt-2 text-xs text-text/50">
+                {patchCount > 0 && (
+                  <>{patchCount} patch{patchCount === 1 ? '' : 'es'} (${cost.patch_cost_usd.toFixed(2)}){cost.pricing_extract_usd > 0 && ' · '}</>
+                )}
+                {cost.pricing_extract_usd > 0 && <>1 Haiku pricing pass (${cost.pricing_extract_usd.toFixed(2)})</>}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-bg-card rounded-xl border border-border p-5">
+            <div className="text-xs uppercase tracking-wide text-text/50 mb-2">Drift</div>
+            <div className="text-2xl font-semibold text-text-bright capitalize">
+              {scan.drift_level || 'none'}
+            </div>
+            <div className="mt-2 text-xs text-text/50">
+              {scan.drift_details?.length
+                ? `${scan.drift_details.length} change${scan.drift_details.length === 1 ? '' : 's'} detected`
+                : 'No changes detected'}
+            </div>
+          </div>
+
+          {recording && (
+            <div className={cn(
+              'bg-bg-card rounded-xl border p-5',
+              recording.is_stale ? 'border-danger/30' : 'border-border'
+            )}>
+              <div className="text-xs uppercase tracking-wide text-text/50 mb-2">Recording</div>
+              <div className="text-2xl font-semibold text-text-bright">
+                {recording.is_stale ? 'Stale' : recording.patch_count > 0 ? 'Patched' : 'Healthy'}
+              </div>
+              <div className="mt-2 text-xs text-text/50">
+                Frozen {formatDate(recording.captured_at)} · {recording.patch_count} total patch{recording.patch_count === 1 ? '' : 'es'}
+              </div>
+              {recording.trace_url && (
+                <a
+                  href={recording.trace_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs text-accent hover:underline"
+                >
+                  <FileArchive size={12} /> trace.zip
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Patch callout — surfaces what happened on the scripted path when at
+          least one step was rescued by the LLM this run. */}
+      {patchedSteps.length > 0 && (
+        <div className="bg-warning/[0.06] border border-warning/30 rounded-xl p-4 mb-6">
+          <div className="flex items-start gap-2.5">
+            <Wand2 size={16} className="text-warning shrink-0 mt-0.5" />
+            <div className="text-sm text-text/80">
+              <p>
+                <strong className="text-text-bright">
+                  {patchedSteps.length} LLM patch{patchedSteps.length === 1 ? '' : 'es'} applied.
+                </strong>{' '}
+                Scripted replay hit selector timeouts on step{patchedSteps.length === 1 ? '' : 's'}{' '}
+                {patchedSteps.map(s => s.step_number).join(', ')}. The shared browser was handed to a single-step
+                browser-use Agent to recover, then scripted playback resumed.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Progress log — collapsed by default */}
       {progressLog.length > 0 && (

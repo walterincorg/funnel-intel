@@ -13,6 +13,14 @@ from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
 from backend.worker.ad_loop import maybe_run_ad_scrape
 from backend.worker.domain_intel_loop import maybe_run_domain_intel
+from backend.worker.recorder import (
+    export_action_log,
+    has_recording,
+    mark_stale,
+    persist_patched_action_log,
+    save_recording,
+)
+from backend.worker.replay import ReplayEscalation, run_replay_sync
 
 log = logging.getLogger(__name__)
 
@@ -163,14 +171,72 @@ def process_job(job: dict):
             log.debug("Failed to flush progress log for %s", run_id)
 
     try:
-        result = run_traversal_sync(
-            competitor_name=comp["name"],
-            funnel_url=comp["funnel_url"],
-            config=comp.get("config"),
-            baseline_steps=baseline_steps_data,
-            on_progress=_on_progress,
-            competitor_slug=comp.get("slug"),
-        )
+        # Branch on recording existence (Phase 2 = A).
+        # If a non-stale recording exists, drive the funnel with Playwright +
+        # single-step LLM patches. Otherwise run the full browser-use traversal
+        # and, on success, record it for next time.
+        action_log = export_action_log(competitor_id)
+        used_replay = False
+        replay_patch_count = 0
+        replay_action_log: list[dict] | None = None
+        cost_meta: dict | None = None
+
+        if action_log:
+            try:
+                log.info("Replay path for %s — %d recorded actions (run=%s)",
+                         comp["name"], len(action_log), run_id,
+                         extra={"run_id": run_id, "competitor_id": competitor_id})
+                result = run_replay_sync(
+                    competitor_id=competitor_id,
+                    competitor_name=comp["name"],
+                    funnel_url=comp["funnel_url"],
+                    action_log=action_log,
+                    on_progress=_on_progress,
+                )
+                used_replay = True
+                replay_patch_count = result.get("patch_count", 0)
+                replay_action_log = result.get("action_log")
+                cost_meta = result.get("cost")
+            except ReplayEscalation as esc:
+                log.warning(
+                    "Replay escalated for %s (%s after %d patches) — falling back to full LLM",
+                    comp["name"], esc.reason, esc.patches_attempted,
+                    extra={"run_id": run_id, "competitor_id": competitor_id},
+                )
+                mark_stale(competitor_id, esc.reason)
+                _on_progress({
+                    "step": 0,
+                    "type": "escalation",
+                    "message": f"Replay escalated: {esc.reason}. Falling back to full LLM.",
+                })
+                result = run_traversal_sync(
+                    competitor_name=comp["name"],
+                    funnel_url=comp["funnel_url"],
+                    config=comp.get("config"),
+                    baseline_steps=baseline_steps_data,
+                    on_progress=_on_progress,
+                    competitor_slug=comp.get("slug"),
+                )
+            except Exception:
+                log.exception("Replay for %s errored unexpectedly — falling back to full LLM", comp["name"])
+                mark_stale(competitor_id, "replay_runtime_error")
+                result = run_traversal_sync(
+                    competitor_name=comp["name"],
+                    funnel_url=comp["funnel_url"],
+                    config=comp.get("config"),
+                    baseline_steps=baseline_steps_data,
+                    on_progress=_on_progress,
+                    competitor_slug=comp.get("slug"),
+                )
+        else:
+            result = run_traversal_sync(
+                competitor_name=comp["name"],
+                funnel_url=comp["funnel_url"],
+                config=comp.get("config"),
+                baseline_steps=baseline_steps_data,
+                on_progress=_on_progress,
+                competitor_slug=comp.get("slug"),
+            )
 
         # Deduplicate steps — keep last occurrence per step_number (most complete)
         deduped_steps: dict[int, dict] = {}
@@ -208,7 +274,17 @@ def process_job(job: dict):
             }).execute()
 
         # Update run as completed
-        summary = result["summary"]
+        summary = dict(result["summary"])
+        # Annotate mode + cost for dashboard — mirrors the preview mockup's
+        # "Scripted · 1 LLM patch" badge and cost-saved card.
+        if used_replay:
+            summary.setdefault("mode", "patched" if replay_patch_count > 0 else "scripted")
+            summary["patch_count"] = replay_patch_count
+            if cost_meta:
+                summary["cost"] = cost_meta
+        else:
+            summary.setdefault("mode", "full_llm")
+
         update_data = {
             "status": "completed",
             "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -217,6 +293,21 @@ def process_job(job: dict):
             "summary": summary,
             "progress_log": progress_log,
         }
+
+        # Persist patched action log (Q4 = B: patch in place, never re-record).
+        if used_replay and replay_patch_count and replay_action_log:
+            persist_patched_action_log(competitor_id, replay_action_log, replay_patch_count)
+
+        # First-run recording: record only on first success (Q4 = B).
+        if (
+            not used_replay
+            and not has_recording(competitor_id)
+            and len(result["steps"]) >= 3
+        ):
+            try:
+                save_recording(competitor_id, result["steps"])
+            except Exception:
+                log.exception("Failed to save funnel recording for %s", comp["name"])
 
         # If no baseline exists, this becomes the baseline — but only if it
         # actually captured a meaningful number of steps. A 0- or 1-step run
