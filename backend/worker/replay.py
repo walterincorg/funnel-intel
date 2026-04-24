@@ -21,15 +21,10 @@ import re
 import shutil
 import tempfile
 import time
-from datetime import datetime, timezone
 from typing import Any
 
 from backend.config import ANTHROPIC_API_KEY
-from backend.worker.trace_parser import (
-    HAIKU_PRICING_COST_USD,
-    LLM_PATCH_COST_USD,
-    estimate_replay_cost,
-)
+from backend.worker.trace_parser import estimate_replay_cost
 
 log = logging.getLogger(__name__)
 
@@ -183,39 +178,6 @@ async def _execute_fill(page, action: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Recording persistence helpers.
-# ---------------------------------------------------------------------------
-
-def _load_recording(db, competitor_id: str) -> dict | None:
-    res = (
-        db.table("funnel_recordings")
-        .select("*")
-        .eq("competitor_id", competitor_id)
-        .limit(1)
-        .execute()
-    )
-    return res.data[0] if res.data else None
-
-
-def _persist_patches(db, competitor_id: str, action_log: list[dict], patch_count_delta: int) -> None:
-    if patch_count_delta <= 0:
-        return
-    try:
-        current = _load_recording(db, competitor_id)
-        current_count = (current or {}).get("patch_count", 0)
-        new_total = current_count + patch_count_delta
-        is_stale = new_total >= 5
-        db.table("funnel_recordings").update({
-            "action_log": action_log,
-            "patch_count": new_total,
-            "is_stale": is_stale,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("competitor_id", competitor_id).execute()
-    except Exception:
-        log.exception("Failed to persist patched action_log for %s", competitor_id)
-
-
-# ---------------------------------------------------------------------------
 # Main entry points.
 # ---------------------------------------------------------------------------
 
@@ -257,16 +219,16 @@ async def run_replay(
     browser_use_browser = None
 
     async with async_playwright() as pw:
-        # Share CDP between Playwright and browser-use. launch_persistent_context
-        # exposes endpoint on browser.ws_endpoint which we hand to BrowserProfile.
-        context = await pw.chromium.launch_persistent_context(
-            user_data_dir,
+        # Use launch() (not launch_persistent_context) so browser.ws_endpoint
+        # is populated and we can hand the same Chromium process to browser-use
+        # for CDP sharing. launch_persistent_context returns a BrowserContext
+        # whose .browser is always None, breaking the CDP bridge.
+        browser = await pw.chromium.launch(
             headless=headless,
             args=["--disable-dev-shm-usage", "--disable-gpu", "--no-sandbox"],
-            accept_downloads=False,
         )
-        browser = context.browser
-        page = context.pages[0] if context.pages else await context.new_page()
+        context = await browser.new_context(accept_downloads=False)
+        page = await context.new_page()
         page.set_default_timeout(SELECTOR_TIMEOUT_MS)
         page.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
 
@@ -360,7 +322,7 @@ async def run_replay(
                         pass
         finally:
             try:
-                await asyncio.wait_for(context.close(), timeout=15)
+                await asyncio.wait_for(browser.close(), timeout=15)
             except Exception:
                 pass
             try:

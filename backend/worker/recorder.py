@@ -28,15 +28,22 @@ MIN_STEPS_FOR_RECORDING = 3
 
 
 def has_recording(competitor_id: str) -> bool:
+    """Return True only when a non-stale recording exists.
+
+    A stale recording needs to be rebuilt, so callers that gate on this (e.g.
+    loop.py's re-recording guard) should treat stale == no recording.
+    """
     db = get_db()
     res = (
         db.table("funnel_recordings")
-        .select("competitor_id")
+        .select("competitor_id, is_stale")
         .eq("competitor_id", competitor_id)
         .limit(1)
         .execute()
     )
-    return bool(res.data)
+    if not res.data:
+        return False
+    return not res.data[0].get("is_stale", False)
 
 
 def load_recording(competitor_id: str) -> dict | None:

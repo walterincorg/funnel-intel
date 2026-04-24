@@ -2,20 +2,10 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ChevronDown, ChevronRight, MessageSquare, CreditCard, FormInput, Info, Tag, ScrollText, Zap, Wand2, Bot, FileArchive } from 'lucide-react'
-import { api, type ScanStep, type ProgressLogEntry } from '@/api/client'
+import { api, type ScanStep, type ProgressLogEntry, type ReplayCost } from '@/api/client'
 import { cn, formatDate } from '@/lib/utils'
 
 type ReplayMode = 'scripted' | 'patched' | 'full_llm'
-
-interface ReplayCost {
-  total_usd: number
-  baseline_usd: number
-  saved_usd: number
-  saved_pct: number
-  patches: number
-  patch_cost_usd: number
-  pricing_extract_usd: number
-}
 
 function ModeBadge({ mode, patches }: { mode: ReplayMode; patches: number }) {
   if (mode === 'full_llm') {

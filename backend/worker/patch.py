@@ -65,15 +65,19 @@ async def patch_step(
         )
         result = await agent.run(max_steps=1)
     except TypeError:
-        # Older browser-use versions accept max_steps on the Agent, not run()
-        agent = Agent(
-            task=prompt,
-            llm=get_llm(),
-            browser=shared_browser,
-            llm_timeout=120,
-            max_steps=1,
-        )
-        result = await agent.run()
+        # Older browser-use versions accept max_steps on the Agent, not run().
+        try:
+            agent = Agent(
+                task=prompt,
+                llm=get_llm(),
+                browser=shared_browser,
+                llm_timeout=120,
+                max_steps=1,
+            )
+            result = await agent.run()
+        except Exception as exc:
+            log.warning("Patch agent (fallback) failed for step %s: %s", action.get("step_number"), exc)
+            return None
     except Exception as exc:
         log.warning("Patch agent failed for step %s: %s", action.get("step_number"), exc)
         return None
