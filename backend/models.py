@@ -246,6 +246,19 @@ class AppSettingsUpdate(BaseModel):
     domain_intel_hour_utc: int | None = None
 
 
+# --- Funnel Recordings (scripted replay) ---
+
+class FunnelRecordingOut(BaseModel):
+    competitor_id: str
+    trace_path: str | None = None
+    trace_url: str | None = None  # short-lived signed URL, populated on read
+    action_log: list[dict] = []
+    captured_at: datetime | None = None
+    patch_count: int = 0
+    is_stale: bool = False
+    updated_at: datetime | None = None
+
+
 # --- Version ---
 
 class VersionOut(BaseModel):

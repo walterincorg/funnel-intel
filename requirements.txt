@@ -10,3 +10,4 @@ pydantic
 requests
 anthropic
 Pillow
+playwright
