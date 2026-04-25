@@ -223,9 +223,11 @@ async def run_replay(
         # is populated and we can hand the same Chromium process to browser-use
         # for CDP sharing. launch_persistent_context returns a BrowserContext
         # whose .browser is always None, breaking the CDP bridge.
+        chromium_path = os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None
         browser = await pw.chromium.launch(
             headless=headless,
             args=["--disable-dev-shm-usage", "--disable-gpu", "--no-sandbox"],
+            **({"executable_path": chromium_path} if chromium_path else {}),
         )
         context = await browser.new_context(accept_downloads=False)
         page = await context.new_page()
