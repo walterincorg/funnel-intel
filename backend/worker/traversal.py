@@ -217,6 +217,7 @@ async def run_traversal(
     baseline_steps: list[dict] | None = None,
     on_progress: callable | None = None,
     competitor_slug: str | None = None,
+    traversal_model: str | None = None,
 ) -> dict:
     """
     Run a funnel traversal and return structured results.
@@ -245,8 +246,9 @@ async def run_traversal(
             competitor_name, funnel_url, config, available_files=available_file_paths,
         )
 
-    log.info("Starting traversal for %s (%s) — mode=%s",
-             competitor_name, funnel_url, "guided" if baseline_steps else "freeform")
+    log.info("Starting traversal for %s (%s) — mode=%s model=%s",
+             competitor_name, funnel_url, "guided" if baseline_steps else "freeform",
+             traversal_model or "env-default")
     traversal_start = time.perf_counter()
 
     headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
@@ -374,7 +376,7 @@ async def run_traversal(
     try:
         agent = Agent(
             task=prompt,
-            llm=get_llm(),
+            llm=get_llm(traversal_model=traversal_model),
             browser=browser,
             tools=_build_tools(),
             llm_timeout=180,
@@ -483,9 +485,10 @@ def run_traversal_sync(
     baseline_steps: list[dict] | None = None,
     on_progress: callable | None = None,
     competitor_slug: str | None = None,
+    traversal_model: str | None = None,
 ) -> dict:
     """Synchronous wrapper for run_traversal."""
     coro = run_traversal(
-        competitor_name, funnel_url, config, baseline_steps, on_progress, competitor_slug,
+        competitor_name, funnel_url, config, baseline_steps, on_progress, competitor_slug, traversal_model,
     )
     return asyncio.run(asyncio.wait_for(coro, timeout=SCAN_TIMEOUT))

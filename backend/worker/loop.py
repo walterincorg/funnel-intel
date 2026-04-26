@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from backend.db import get_db
+from backend.config import DEFAULT_TRAVERSAL_MODEL
 from backend.worker.traversal import run_traversal_sync
 from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
@@ -125,6 +126,7 @@ def process_job(job: dict):
     job_start = time.perf_counter()
     db = get_db()
     competitor_id = job["competitor_id"]
+    traversal_model = job.get("traversal_model") or DEFAULT_TRAVERSAL_MODEL
 
     # Fetch competitor
     comp = db.table("competitors").select("*").eq("id", competitor_id).single().execute().data
@@ -143,8 +145,10 @@ def process_job(job: dict):
     }).execute().data[0]
 
     run_id = run["id"]
-    log.info("Starting scan %s for %s (job=%s)", run_id, comp["name"], job["id"],
-             extra={"run_id": run_id, "competitor_id": competitor_id, "job_id": job["id"]})
+    log.info("Starting scan %s for %s (job=%s model=%s)",
+             run_id, comp["name"], job["id"], traversal_model,
+             extra={"run_id": run_id, "competitor_id": competitor_id,
+                    "job_id": job["id"], "traversal_model": traversal_model})
 
     # Check for baseline
     baseline_run, baseline_steps = get_baseline(competitor_id)
@@ -170,6 +174,7 @@ def process_job(job: dict):
             baseline_steps=baseline_steps_data,
             on_progress=_on_progress,
             competitor_slug=comp.get("slug"),
+            traversal_model=traversal_model,
         )
 
         # Deduplicate steps — keep last occurrence per step_number (most complete)

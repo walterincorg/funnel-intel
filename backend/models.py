@@ -1,6 +1,8 @@
 from __future__ import annotations
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from backend.config import DEFAULT_TRAVERSAL_MODEL, TRAVERSAL_MODEL_IDS
 
 
 # --- Competitors ---
@@ -56,6 +58,17 @@ class ScanRunOut(BaseModel):
 class ScanTrigger(BaseModel):
     competitor_id: str
     priority: int = 0
+    traversal_model: str | None = DEFAULT_TRAVERSAL_MODEL
+
+    @field_validator("traversal_model")
+    @classmethod
+    def validate_traversal_model(cls, value: str | None) -> str:
+        if value is None:
+            return DEFAULT_TRAVERSAL_MODEL
+        if value not in TRAVERSAL_MODEL_IDS:
+            allowed = ", ".join(TRAVERSAL_MODEL_IDS)
+            raise ValueError(f"Unsupported traversal model '{value}'. Must be one of: {allowed}")
+        return value
 
 
 # --- Scan Steps ---

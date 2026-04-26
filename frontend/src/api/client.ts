@@ -18,6 +18,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // --- Types ---
 
+export type TraversalModel = 'gpt-5.4-mini' | 'claude-sonnet-4-6'
+
+export const TRAVERSAL_MODEL_OPTIONS: { value: TraversalModel; label: string }[] = [
+  { value: 'gpt-5.4-mini', label: 'GPT 5.4 Mini' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+]
+
+export const DEFAULT_TRAVERSAL_MODEL: TraversalModel = 'gpt-5.4-mini'
+
 export interface Competitor {
   id: string
   name: string
@@ -277,6 +286,7 @@ export interface ScanJob {
   id: string
   competitor_id: string
   status: 'pending' | 'picked'
+  traversal_model: TraversalModel | null
   created_at: string
   picked_at: string | null
 }
@@ -304,10 +314,10 @@ export const api = {
     request<ScanRun[]>(competitorId ? `/scans?competitor_id=${competitorId}` : '/scans'),
   getScan: (id: string) => request<ScanRun>(`/scans/${id}`),
   getScanSteps: (runId: string) => request<ScanStep[]>(`/scans/${runId}/steps`),
-  triggerScan: (competitorId: string) =>
+  triggerScan: (competitorId: string, traversalModel: TraversalModel = DEFAULT_TRAVERSAL_MODEL) =>
     request<{ job_id: string; status: string }>('/scans/trigger', {
       method: 'POST',
-      body: JSON.stringify({ competitor_id: competitorId }),
+      body: JSON.stringify({ competitor_id: competitorId, traversal_model: traversalModel }),
     }),
   listActiveJobs: () => request<ScanJob[]>('/scans/jobs/active'),
 
