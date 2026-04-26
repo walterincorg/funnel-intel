@@ -60,21 +60,33 @@ IMPORTANT BROWSING RULES:
 - ALWAYS scroll down before clicking a button. The main action button (Continue, Next, Submit) is usually below the fold. Do NOT click buttons near the top of the page — those are often navigation/logo links that will reset the funnel.
 - If the page suddenly goes back to the beginning of the funnel (e.g. you see the first question again, or the URL changes to a new visitor/session ID), STOP IMMEDIATELY. Report it as stop_reason "funnel_reset" in the summary. Do NOT restart the funnel — one pass is enough.
 - After clicking, wait briefly for page transitions and animations to complete before acting on the next screen.
+- POPUP/SIDEBAR/MODAL HANDLING: If a popup, sidebar, modal, cookie banner, or any overlay appears that's blocking the funnel content, CLOSE IT FIRST before trying to interact with the underlying form. Common close patterns: X button, "No thanks", "Skip", "Continue without", "Decline", or pressing Escape via send_keys.
+- STUCK-LOOP RECOVERY: If you click the same element twice and the page does NOT advance, do NOT keep clicking the same element. Instead, in this order: (a) scroll to expose more elements, (b) wait 3 seconds and recheck, (c) try a SIBLING element with a similar role (e.g. another option button), (d) as a last resort, refresh the page by navigating to the current URL again. Never click the same broken element more than 2 times.
+- FALLBACK ACTIONS WHEN AN ELEMENT ISN'T INDEXED: If you can SEE an answer option, button, or input field on the screenshot but it's NOT in the indexed elements list:
+  - For clickable items (answer options, buttons): use the `click_by_text` action with the visible text. Example: click_by_text(text="Mid-sized").
+  - For form inputs (email, text fields): use the `fill_input` action with a CSS selector. Examples: fill_input(selector="input[type=email]", value="jane.doe@example.com"), fill_input(selector="input[name=age]", value="30").
+  - You can also click via screen coordinates if the element is visible but unindexed.
+  These fallbacks bypass the indexed element list entirely. Use them BEFORE giving up.
+- ANSWER OPTIONS ARE VALID CLICK TARGETS: Funnels often need you to click an answer option (like "Yes", "Mid-sized", "Lose weight") which then auto-advances OR enables a Continue button. Both patterns are normal. Click the answer first; only then look for Continue.
 
-For EACH step, output a JSON object on its own line:
-{{"step_number": N, "step_type": "question|info|input|pricing|discount", "question_text": "...", "answer_options": [{{"label": "...", "value": "..."}}], "action_taken": "clicked X", "url": "current URL", "log": "short human-readable summary of what happened and why"}}
+PRICING PAGE — when you reach a pricing/checkout/subscription/plan-selection page:
+This is the most important data we extract. When you see one, scroll if needed to
+make every plan tile visible, then capture data and stop.
 
-The "log" field is IMPORTANT — write it like a person casually commenting on what they see. Examples:
-- "Landed on age selection. Four options, picked 30-39 as the middle choice."
-- "Asked about fitness goals — went with Lose Weight since it's the most common."
-- "Hit a pricing page! Three plans: Basic $9/mo, Pro $19/mo, Premium $39/mo."
-- "Email verification required — need to check inbox. Stopping here."
+When you call the `done` action at the end of the run, the `text` field MUST be a
+JSON string with this exact shape:
 
-If you see a PRICING page, output:
-{{"step_number": N, "step_type": "pricing", "plans": [{{"name": "...", "price": "...", "currency": "...", "period": "...", "features": ["..."]}}], "discounts": [{{"type": "...", "amount": "...", "original_price": "...", "discounted_price": "...", "conditions": "..."}}], "trial_info": {{"has_trial": true/false, "trial_days": N, "trial_price": "..."}}, "url": "current URL", "log": "..."}}
+{{"step_type": "pricing", "url": "current page URL", "stop_reason": "paywall|end_of_funnel|max_steps|funnel_reset", "plans": [{{"name": "1-week plan", "price": "9.49", "currency": "USD", "period": "one-time", "features": ["Most Popular"]}}], "discounts": [{{"type": "percent_off", "amount": "50%", "original_price": "18.98", "discounted_price": "9.49", "conditions": "limited time"}}], "trial_info": {{"has_trial": false, "trial_days": null, "trial_price": null}}}}
 
-After the last step, output a summary line:
-{{"summary": true, "total_steps": N, "stop_reason": "paywall|funnel_reset|end_of_funnel|max_steps"}}
+Notes:
+- Include every visible plan tile in the `plans` array.
+- If there is no discount or no trial, use empty array / null values.
+- If you stopped before reaching pricing (no pricing visible), still output JSON but with `plans: []` and the appropriate `stop_reason`.
+- The `done.text` field is the ONLY place this JSON should appear. Do NOT print it
+  earlier in your thinking, memory, or next_goal — only inside the final `done` call.
+
+Then: scroll for any "skip" / "maybe later" / "no thanks" link and click it before
+stopping; otherwise stop with stop_reason="paywall".
 {files_block}"""
 
 
@@ -102,24 +114,29 @@ At each step:
 3. If it's slightly different (reworded but same intent): execute the action, note the difference.
 4. If it's completely different: report the drift and continue exploring freely.
 
-IMPORTANT — OUTPUT FORMAT:
-For EACH step, output a JSON object on its own line with the ACTUAL question
-and answer options visible on the page (not the baseline values). Include a
-`drift` field so we can tell how closely the live step matches the script:
+For each step write a brief observation in your `memory` and `next_goal` fields:
+the question text you see, the option you picked, and any drift from the baseline.
+Be concrete (e.g. "Step 8: 'How active are you?' — picked Moderate. Baseline expected
+'How often do you exercise?' — minor wording drift.").
 
-{{"step_number": N, "step_type": "question|info|input|pricing|discount", "question_text": "...", "answer_options": [{{"label": "...", "value": "..."}}], "action_taken": "clicked X", "url": "current URL", "drift": "none|minor|major", "expected": "baseline question text", "actual": "what you actually saw", "log": "short human-readable summary"}}
+PRICING PAGE — when you reach a pricing/checkout/subscription/plan-selection page:
+This is the most important data we extract. Scroll if needed to make every plan
+tile visible.
 
-The "log" field is IMPORTANT — a casual one-line human comment on what you saw
-and why you picked what you did.
+When you call the `done` action at the end of the run, the `text` field MUST be a
+JSON string with this exact shape (single-line, no markdown fences):
 
-If you hit a PRICING page, output:
-{{"step_number": N, "step_type": "pricing", "plans": [{{"name": "...", "price": "...", "currency": "...", "period": "...", "features": ["..."]}}], "discounts": [{{"type": "...", "amount": "...", "original_price": "...", "discounted_price": "...", "conditions": "..."}}], "trial_info": {{"has_trial": true/false, "trial_days": N, "trial_price": "..."}}, "url": "current URL", "drift": "none|minor|major", "log": "..."}}
+{{"step_type": "pricing", "url": "current page URL", "stop_reason": "paywall|end_of_funnel|max_steps|funnel_reset", "plans": [{{"name": "1-week plan", "price": "9.49", "currency": "USD", "period": "one-time", "features": ["Most Popular"]}}], "discounts": [{{"type": "percent_off", "amount": "50%", "original_price": "18.98", "discounted_price": "9.49", "conditions": "limited time"}}], "trial_info": {{"has_trial": false, "trial_days": null, "trial_price": null}}}}
 
-After the last step, output a summary line:
-{{"summary": true, "total_steps": N, "stop_reason": "paywall|funnel_reset|end_of_funnel|max_steps"}}
+Notes:
+- Include every visible plan tile in the `plans` array.
+- If there is no discount or no trial, use empty array / null values.
+- If you stopped before reaching pricing (no pricing visible), still output JSON but with `plans: []` and the appropriate `stop_reason`.
+- The `done.text` field is the ONLY place this JSON should appear. Do NOT print it
+  earlier in your thinking, memory, or next_goal — only inside the final `done` call.
 
-STOP CONDITIONS (same as freeform):
+STOP CONDITIONS:
 - Fill in any email/name/phone fields with fake data (e.g. jane.doe@example.com) and keep going.
-- Stop only if you hit a hard payment wall with no skip option (stop_reason "paywall"), or a genuine inbox-verification screen with no way around it (stop_reason "email_verification").
+- Stop only if you hit a hard payment wall with no skip option, or a genuine inbox-verification screen with no way around it.
 - If the funnel extends beyond the baseline, keep going until you reach a natural end or a stop condition.
 """

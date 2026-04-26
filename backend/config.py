@@ -58,9 +58,22 @@ def get_llm():
 
     if provider == "openai":
         from browser_use.llm.openai.chat import ChatOpenAI
+        # Smaller / cheaper OpenAI models (mini, nano) often fail strict
+        # structured-output validation because they nest the JSON inside
+        # `thinking` or wrap it in markdown. These flags broadly improve
+        # schema compliance without hurting bigger models:
+        #   - add_schema_to_system_prompt: shows schema in system message too
+        #   - remove_min_items_from_schema: some models choke on minItems
+        #   - remove_defaults_from_schema: some models choke on default fields
+        #   - max_completion_tokens: give room for multi-action steps
         return ChatOpenAI(
             model=model,
             api_key=os.getenv("OPENAI_API_KEY"),
+            temperature=0,
+            add_schema_to_system_prompt=True,
+            remove_min_items_from_schema=True,
+            remove_defaults_from_schema=True,
+            max_completion_tokens=8192,
         )
 
     if provider == "ollama":
