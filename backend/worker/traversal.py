@@ -354,15 +354,27 @@ def _build_tools() -> Tools:
                   const walk = (node) => { roots.push(node); node.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); }); };
                   walk(document);
                   const inputs = roots.flatMap((root) => Array.from(root.querySelectorAll('input'))).filter(visible).filter((el) => el.type !== 'hidden');
-                  const email = inputs.find((el) => el.type === 'email' || /email/i.test(el.name || el.placeholder || el.getAttribute('aria-label') || ''));
-                  if (email && !email.value) {
-                    email.focus(); email.value = 'jane.doe@example.com';
+                  const email = inputs.find((el) => el.type === 'email' || /email/i.test(el.name || el.placeholder || el.getAttribute('aria-label') || '')) ||
+                    inputs.find((el) => /enter your email|email/i.test((el.previousElementSibling?.innerText || '') + ' ' + (el.parentElement?.innerText || '')));
+                  if (email) {
+                    const fake = `jane.doe.${Math.floor(Math.random()*1e6)}@gmail.com`;
+                    email.focus();
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    if (setter) setter.call(email, fake);
+                    email.value = fake;
                     email.dispatchEvent(new Event('input', {bubbles:true, composed:true}));
                     email.dispatchEvent(new Event('change', {bubbles:true, composed:true}));
                     email.blur();
                     const btn = roots.flatMap((r)=>Array.from(r.querySelectorAll('button,[role="button"]'))).filter(visible).find((el)=>/continue|get my plan|next|submit/i.test(textOf(el)));
-                    if (btn) btn.click();
-                    return {ok:true, message:'Filled email and advanced'};
+                    if (btn) {
+                      btn.removeAttribute('disabled');
+                      btn.disabled = false;
+                      btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                      btn.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                      btn.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                      btn.click();
+                    }
+                    return {ok:true, message:`Filled email ${fake} and advanced`};
                   }
                   const body = textOf(document.body).toLowerCase();
                   const nums = inputs.filter((el) => el.type === 'number' || el.inputMode === 'numeric' || /\b(ft|in|lbs|kg|years|age|weight|height)\b/i.test((el.name || el.placeholder || el.getAttribute('aria-label') || '') + ' ' + body));
@@ -381,6 +393,20 @@ def _build_tools() -> Tools:
                     if (btn) btn.click();
                     return {ok:true, message:`Filled numeric ${vals.join('/')} and advanced`};
                   }
+                  const selects = roots.flatMap((root) => Array.from(root.querySelectorAll('select'))).filter(visible);
+                  if (selects.length >= 2 || /date of birth|birth|dob/.test(body)) {
+                    const vals = ['Jan', '1', '1990'];
+                    selects.slice(0, 3).forEach((sel, idx) => {
+                      const opts = Array.from(sel.options || []);
+                      const wanted = opts.find(o => new RegExp(vals[idx], 'i').test(o.text || o.value)) || opts.find(o => o.value && !o.disabled) || opts[1];
+                      if (wanted) sel.value = wanted.value;
+                      sel.dispatchEvent(new Event('input', {bubbles:true, composed:true}));
+                      sel.dispatchEvent(new Event('change', {bubbles:true, composed:true}));
+                    });
+                    const btn = roots.flatMap((r)=>Array.from(r.querySelectorAll('button,[role="button"],div'))).filter(visible).find((el)=>/continue|next|skip this question/i.test(textOf(el)));
+                    if (btn) btn.click();
+                    return {ok:true, message:`Filled DOB selects${btn ? ' and advanced' : ''}`};
+                  }
                   const date = inputs.find((el) => el.type === 'date' || /date|event/i.test(el.name || el.placeholder || body));
                   if (date) {
                     date.focus(); date.value = '2026-08-01';
@@ -397,6 +423,26 @@ def _build_tools() -> Tools:
                     .map((el)=>({el, text:textOf(el)}))
                     .filter(({text})=>text && text.length <= 90 && !legalRe.test(text))
                     .filter(({text})=>!/^(continue|next|submit|back|help|docs|faq)$/i.test(text));
+                  if (/choose|select|products|all that apply/i.test(body) && candidates.length >= 2) {
+                    const picks = candidates.filter(({text})=>!/^(choose all that apply|none|none of the above|other)$/i.test(text)).slice(0, 4);
+                    for (const {el} of picks) {
+                      el.click();
+                      el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                      el.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                      el.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                    }
+                    const btn = roots.flatMap((r)=>Array.from(r.querySelectorAll('button,[role="button"],a,div')))
+                      .filter(visible).find((el)=>/continue|next|get my plan|see results|start test|take the quiz|skip this question/i.test(textOf(el)) && !legalRe.test(textOf(el)));
+                    if (btn) {
+                      btn.removeAttribute('disabled');
+                      btn.disabled = false;
+                      btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                      btn.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                      btn.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                      btn.click();
+                    }
+                    return {ok:true, message:`Selected ${picks.length} options${btn ? ' and clicked CTA' : ''}`};
+                  }
                   if (candidates.length >= 2) {
                     const choice = candidates[Math.floor((candidates.length - 1) / 2)].el;
                     choice.click();
@@ -734,6 +780,139 @@ async def _capture_screenshot(browser: Browser, screenshot_dir: Path, step_numbe
         return None
 
 
+async def _auto_recover_page(browser: Browser, snapshot: dict) -> str | None:
+    """Deterministic recovery for screens where GPT mini often loops."""
+    text = (snapshot.get("visible_text") or "").lower()
+    is_products = "choose the products you like" in text
+    is_dob = bool(re.search(r'\b(date of birth|birth date|d\.?o\.?b\.?|day .*? month .*? year|month .*? day .*? year|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', text)) and "year" in text and ("month" in text or "day" in text)
+    is_email_gate = "enter your email" in text or "invalid email" in text or ("email" in text and "save your" in text)
+    if not (is_products or is_dob or is_email_gate):
+        return None
+    try:
+        page = await browser.get_current_page()
+        if is_email_gate:
+            result = await page.evaluate(
+                """
+                () => {
+                  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.disabled; };
+                  const textOf = (el) => (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+                  const roots = [];
+                  const walk = (node) => { roots.push(node); node.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); }); };
+                  walk(document);
+                  const inputs = roots.flatMap((r) => Array.from(r.querySelectorAll('input'))).filter(visible).filter((el) => el.type !== 'hidden');
+                  const target = inputs.find((el) => el.type === 'email') || inputs.find((el) => el.type === 'text') || inputs[0];
+                  if (!target) return {ok: false, message: 'no email input found'};
+                  const fake = `jane.doe.${Date.now()}@gmail.com`;
+                  target.focus();
+                  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                  if (setter) setter.call(target, fake);
+                  target.value = fake;
+                  target.dispatchEvent(new Event('input', {bubbles: true, composed: true}));
+                  target.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
+                  target.blur();
+                  const btn = roots.flatMap((r) => Array.from(r.querySelectorAll('button,[role="button"]')))
+                    .filter(visible).find((el) => /continue|next|submit|get my plan/i.test(textOf(el)));
+                  if (btn) {
+                    btn.removeAttribute('disabled');
+                    btn.disabled = false;
+                    btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                    btn.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                    btn.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                    btn.click();
+                  }
+                  return {ok: true, message: `set email ${fake}` + (btn ? ' and clicked CTA' : '')};
+                }
+                """
+            )
+            if result and result.get("ok"):
+                return result.get("message") or "auto recovered email gate"
+            return None
+        if is_dob:
+            result = await page.evaluate(
+                """
+                () => {
+                  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.disabled; };
+                  const textOf = (el) => (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+                  const selects = Array.from(document.querySelectorAll('select')).filter(visible);
+                  const setSelect = (sel, wantedRegex, fallbackIdx) => {
+                    if (!sel) return false;
+                    const opts = Array.from(sel.options || []);
+                    let pick = opts.find((o) => wantedRegex.test((o.text || '') + ' ' + (o.value || '')));
+                    if (!pick) pick = opts.find((o) => o.value && !o.disabled && o.value !== '');
+                    if (!pick) pick = opts[fallbackIdx];
+                    if (!pick) return false;
+                    sel.value = pick.value;
+                    sel.dispatchEvent(new Event('input', {bubbles: true, composed: true}));
+                    sel.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
+                    return true;
+                  };
+                  if (selects.length >= 2) {
+                    const month = selects[0];
+                    const day = selects[1];
+                    const year = selects[2];
+                    setSelect(month, /\\b(jun|june|6)\\b/i, 6);
+                    if (day) setSelect(day, /^15$/, 15);
+                    if (year) setSelect(year, /\\b1990\\b/, Math.max(0, (year.options || []).length - 30));
+                    const btn = Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible)
+                      .find((el) => /continue|next|skip this question/i.test(textOf(el)));
+                    if (btn) {
+                      btn.removeAttribute('disabled');
+                      btn.disabled = false;
+                      btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                      btn.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                      btn.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                      btn.click();
+                    }
+                    return {ok: true, message: 'set DOB selects' + (btn ? ' and clicked CTA' : '')};
+                  }
+                  return {ok: false, message: 'no DOB selects'};
+                }
+                """
+            )
+            if result and result.get("ok"):
+                return result.get("message") or "auto recovered DOB"
+            return None
+        result = await page.evaluate(
+            """
+            () => {
+              const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.disabled; };
+              const textOf = (el) => (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+              const legalRe = /(privacy|terms|policy|conditions|cookie|legal)/i;
+              const all = Array.from(document.querySelectorAll('button,[role="button"],label,li,div,span'));
+              const chips = all
+                .filter(visible)
+                .filter((el) => !el.closest('a[href]'))
+                .filter((el) => {
+                  const text = textOf(el);
+                  return text && text.length <= 40 && !legalRe.test(text) && !/^(continue|next|back|help|docs|faq|choose the products you like)$/i.test(text);
+                });
+              for (const chip of chips.slice(0, 12)) {
+                chip.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                chip.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                chip.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                chip.click();
+              }
+              const ctas = all.filter(visible).filter((el) => /continue|next/i.test(textOf(el)) && !legalRe.test(textOf(el)));
+              const btn = ctas[ctas.length - 1];
+              if (btn) {
+                btn.removeAttribute('disabled');
+                btn.disabled = false;
+                btn.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+                btn.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+                btn.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+                btn.click();
+              }
+              return {ok: !!btn, message: `selected ${Math.min(chips.length, 12)} product chips${btn ? ' and clicked continue' : ''}`};
+            }
+            """
+        )
+        if result and result.get("ok"):
+            return result.get("message") or "auto recovered product screen"
+    except Exception as e:
+        log.debug("Auto recovery failed: %s", e)
+    return None
+
+
 async def run_traversal(
     competitor_name: str,
     funnel_url: str,
@@ -941,7 +1120,7 @@ async def run_traversal(
         # but the agent may burn extra cycles on retries / overlays. 250 gives
         # 5x headroom while still catching runaway loops within ~30-40 min.
         try:
-            result = await agent.run(max_steps=max(250, (max_funnel_pages or 0) + 12))
+            result = await agent.run(max_steps=max(350, (max_funnel_pages or 0) + 12))
         except FunnelPageLimitReached as e:
             log.info("Stopping traversal after %d captured funnel pages", e.limit)
             result = None

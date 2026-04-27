@@ -21,7 +21,7 @@ def build_traversal_prompt(
     """Build the browser-use agent prompt for freeform funnel traversal."""
     cfg = config or get_default_strategy()
     stop_keywords = ", ".join(cfg.get("stop_at", ["paywall"]))
-    max_steps = cfg.get("max_steps", 100)
+    max_steps = cfg.get("max_steps", 250)
     max_funnel_pages = cfg.get("max_funnel_pages") or cfg.get("max_pages")
     cap_rule = ""
     if max_funnel_pages:
@@ -74,7 +74,7 @@ IMPORTANT BROWSING RULES:
 - MINI-GAME / TEST RECOVERY: Some funnels include optional reaction-time, memory, quiz, or game screens. Try the obvious interaction once or twice. If a mini-game stalls or loops, do NOT solve it indefinitely; call `bypass_mini_game` to click Skip/Continue/Next or a few safe tiles, then keep moving toward pricing.
 - CONSENT SCREENS: If Continue is disabled because a consent/agreement checkbox is required, call `check_required_consent`. Never click Privacy Policy, Terms, Conditions, cookie, or legal links. If you accidentally reach a legal page, go back to the funnel and continue.
 - NUMERIC INPUT SCREENS: Age, height, current weight, and goal weight screens are normal funnel steps, not resets. Prefer the `fill_numeric_screen` action. Use age 35, height 5 ft 9 in / 175 cm, current weight 180 lb / 82 kg, and goal weight 160 lb / 73 kg, then click Next/Continue.
-- DEFAULT ACTION: On ordinary funnel screens, prefer calling `advance_funnel_step` first. It safely handles middle answer selection, Continue/Next buttons, email gates, numeric inputs, date screens, and consent checkboxes while avoiding legal links. Use lower-level actions only if `advance_funnel_step` reports an error.
+- DEFAULT ACTION: On every ordinary funnel screen, your FIRST action MUST be `advance_funnel_step`. It safely handles middle answer selection, Continue/Next buttons, email gates, numeric inputs, date screens, product chips, and consent checkboxes while avoiding legal links. Use lower-level actions only if `advance_funnel_step` reports an error.
 - FALLBACK ACTIONS WHEN AN ELEMENT ISN'T INDEXED: If you can SEE an answer option, button, or input field on the screenshot but it's NOT in the indexed elements list:
   - For clickable items (answer options, buttons): use the `click_by_text` action with the visible text. Example: click_by_text(text="Mid-sized").
   - For form inputs (email, text fields): use the `fill_input` action with a CSS selector. Examples: fill_input(selector="input[type=email]", value="jane.doe@example.com"), fill_input(selector="input[name=age]", value="30").
