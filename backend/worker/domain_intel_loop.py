@@ -4,9 +4,12 @@ Scrapes BuiltWith relationship data for each competitor's domain.
 """
 
 from __future__ import annotations
+import json
 import logging
 import time
 from datetime import date, datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 
 from urllib.parse import urlparse
 
@@ -16,6 +19,41 @@ from backend.worker.builtwith_scraper import scrape_relationships
 from backend.worker.alerts import send_alert
 
 log = logging.getLogger(__name__)
+_DEBUG_LOG_PATH = Path("/Users/lukaspostulka/local browser use setup/.cursor/debug-8d43ee.log")
+
+
+def _dbg(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-run") -> None:
+    payload = {
+        "sessionId": "8d43ee",
+        "id": f"log_{int(time.time() * 1000)}_{uuid4().hex[:8]}",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
+
+_TWO_PART_TLDS = frozenset({
+    "co.uk", "com.au", "co.nz", "co.za", "com.br", "co.jp", "co.kr",
+    "co.in", "com.mx", "com.ar", "com.co", "org.uk", "net.au",
+})
+
+
+def _root_domain_guess(hostname: str) -> str:
+    """Extract the registrable domain (drop subdomains like 'onboarding.')."""
+    parts = [p for p in hostname.split(".") if p]
+    if len(parts) <= 2:
+        return hostname
+    two_part = ".".join(parts[-2:])
+    if two_part in _TWO_PART_TLDS and len(parts) >= 3:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
 
 
 def maybe_run_domain_intel():
@@ -23,6 +61,14 @@ def maybe_run_domain_intel():
     db = get_db()
     now = datetime.now(timezone.utc)
     today = now.date()
+    # region agent log
+    _dbg(
+        "H2",
+        "backend/worker/domain_intel_loop.py:maybe_run_domain_intel",
+        "Entered maybe_run_domain_intel",
+        {"today": today.isoformat(), "utc_hour": now.hour},
+    )
+    # endregion
 
     pending = (
         db.table("domain_intel_runs")
@@ -31,6 +77,14 @@ def maybe_run_domain_intel():
         .limit(1)
         .execute()
     )
+    # region agent log
+    _dbg(
+        "H2",
+        "backend/worker/domain_intel_loop.py:maybe_run_domain_intel",
+        "Pending domain intel lookup finished",
+        {"pending_count": len(pending.data or []), "pending_id": (pending.data or [{}])[0].get("id") if pending.data else None},
+    )
+    # endregion
     if pending.data:
         log.info("Found manually triggered domain intel run, starting now")
         _run_domain_intel(today)
@@ -96,9 +150,27 @@ def _run_domain_intel(today: date):
             "started_at": now,
         }).execute().data[0]
         run_id = run["id"]
+    # region agent log
+    _dbg(
+        "H4",
+        "backend/worker/domain_intel_loop.py:_run_domain_intel",
+        "Domain intel run row set to running",
+        {"run_id": run_id, "today": today.isoformat(), "used_pending": bool(pending.data)},
+        run_id=run_id,
+    )
+    # endregion
 
     try:
         comps = db.table("competitors").select("id, name, funnel_url").execute().data
+        # region agent log
+        _dbg(
+            "H4",
+            "backend/worker/domain_intel_loop.py:_run_domain_intel",
+            "Loaded competitors for domain intel",
+            {"competitor_count": len(comps or [])},
+            run_id=run_id,
+        )
+        # endregion
         if not comps:
             log.info("No competitors to scan")
             db.table("domain_intel_runs").update({
@@ -108,14 +180,43 @@ def _run_domain_intel(today: date):
             return
 
         relationships_scraped = 0
+        processed_competitors = 0
         bw_competitors = [c for c in comps if c.get("funnel_url")]
+        # region agent log
+        _dbg(
+            "H4",
+            "backend/worker/domain_intel_loop.py:_run_domain_intel",
+            "Prepared BuiltWith competitor set",
+            {"builtwith_competitor_count": len(bw_competitors)},
+            run_id=run_id,
+        )
+        # endregion
         log.info("BuiltWith scraping: %d competitors to process", len(bw_competitors))
         for i, comp in enumerate(bw_competitors, 1):
-            domain = urlparse(comp["funnel_url"]).netloc
+            raw_netloc = urlparse(comp["funnel_url"]).netloc
+            domain = _root_domain_guess(raw_netloc)
             log.info("BuiltWith [%d/%d] scraping %s (%s)", i, len(bw_competitors), comp["name"], domain)
             comp_start = time.perf_counter()
+            # region agent log
+            _dbg(
+                "H5",
+                "backend/worker/domain_intel_loop.py:_run_domain_intel",
+                "Starting scrape_relationships call",
+                {"run_competitor_index": i, "total_competitors": len(bw_competitors), "domain": domain, "competitor_id": comp["id"]},
+                run_id=run_id,
+            )
+            # endregion
             try:
                 rows = scrape_relationships(domain)
+                # region agent log
+                _dbg(
+                    "H5",
+                    "backend/worker/domain_intel_loop.py:_run_domain_intel",
+                    "scrape_relationships returned",
+                    {"run_competitor_index": i, "domain": domain, "rows": len(rows)},
+                    run_id=run_id,
+                )
+                # endregion
                 scrape_elapsed = time.perf_counter() - comp_start
                 log.info("BuiltWith [%d/%d] %s -> %d rows (scraped in %.1fs)",
                          i, len(bw_competitors), domain, len(rows), scrape_elapsed,
@@ -144,10 +245,24 @@ def _run_domain_intel(today: date):
                 # aggressively. Anything under ~10s gets the VPS temp-banned.
                 time.sleep(15)
             except Exception:
+                # region agent log
+                _dbg(
+                    "H5",
+                    "backend/worker/domain_intel_loop.py:_run_domain_intel",
+                    "scrape_relationships raised exception",
+                    {"run_competitor_index": i, "domain": domain},
+                    run_id=run_id,
+                )
+                # endregion
                 scrape_elapsed = time.perf_counter() - comp_start
                 log.exception("BuiltWith [%d/%d] scrape failed for %s after %.1fs",
                               i, len(bw_competitors), domain, scrape_elapsed,
                               extra={"competitor_id": comp["id"]})
+            finally:
+                processed_competitors += 1
+                db.table("domain_intel_runs").update({
+                    "competitors_scanned": processed_competitors,
+                }).eq("id", run_id).execute()
         log.info("BuiltWith scraping complete: %d total rows across %d competitors", relationships_scraped, len(bw_competitors))
 
         bw_competitors_count = len(bw_competitors)
@@ -170,6 +285,15 @@ def _run_domain_intel(today: date):
         )
 
     except Exception as e:
+        # region agent log
+        _dbg(
+            "H4",
+            "backend/worker/domain_intel_loop.py:_run_domain_intel",
+            "Domain intel pipeline exception",
+            {"error": str(e)[:500]},
+            run_id=run_id,
+        )
+        # endregion
         log.exception("Domain intel run failed")
         db.table("domain_intel_runs").update({
             "status": "failed",

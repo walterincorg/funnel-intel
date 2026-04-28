@@ -1,12 +1,14 @@
 """Worker polling loop — picks scan jobs and runs traversals."""
 
 from __future__ import annotations
+import json
 import logging
 import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from backend.db import get_db
 from backend.config import DEFAULT_TRAVERSAL_MODEL, SUPABASE_STORAGE_BUCKET
@@ -17,6 +19,25 @@ from backend.worker.ad_loop import maybe_run_ad_scrape
 from backend.worker.domain_intel_loop import maybe_run_domain_intel
 
 log = logging.getLogger(__name__)
+_DEBUG_LOG_PATH = Path("/Users/lukaspostulka/local browser use setup/.cursor/debug-8d43ee.log")
+
+
+def _dbg(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-run") -> None:
+    payload = {
+        "sessionId": "8d43ee",
+        "id": f"log_{int(time.time() * 1000)}_{uuid4().hex[:8]}",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
 
 POLL_INTERVAL = 10  # seconds
 _shutdown = False
@@ -403,7 +424,16 @@ def main():
         else:
             # Background ad/domain loops only run on the primary worker to
             # avoid triple-firing when multiple workers are deployed.
-            if IS_PRIMARY and not has_pending_scan_job():
+            pending_scan_job = has_pending_scan_job()
+            # region agent log
+            _dbg(
+                "H1-H3",
+                "backend/worker/loop.py:main",
+                "Background-loop gate check",
+                {"is_primary": IS_PRIMARY, "worker_id": WORKER_ID, "has_pending_scan_job": pending_scan_job},
+            )
+            # endregion
+            if IS_PRIMARY and not pending_scan_job:
                 try:
                     maybe_run_ad_scrape()
                 except Exception:
@@ -412,6 +442,19 @@ def main():
                     maybe_run_domain_intel()
                 except Exception:
                     log.exception("Domain intel check failed")
+            else:
+                # region agent log
+                _dbg(
+                    "H1-H3",
+                    "backend/worker/loop.py:main",
+                    "Skipped background loops this cycle",
+                    {
+                        "reason": "not_primary" if not IS_PRIMARY else "pending_scan_job",
+                        "is_primary": IS_PRIMARY,
+                        "has_pending_scan_job": pending_scan_job,
+                    },
+                )
+                # endregion
             time.sleep(POLL_INTERVAL)
     log.info("Worker stopped")
 

@@ -16,9 +16,12 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import anthropic
 from PIL import Image
@@ -26,8 +29,38 @@ from PIL import Image
 from backend.config import ANTHROPIC_API_KEY
 
 log = logging.getLogger(__name__)
+_DEBUG_LOG_PATH = Path("/Users/lukaspostulka/local browser use setup/.cursor/debug-8d43ee.log")
 
-BROWSER_USE = "/opt/funnel-intel/.venv/bin/browser-use"
+
+def _dbg(hypothesis_id: str, location: str, message: str, data: dict, run_id: str) -> None:
+    payload = {
+        "sessionId": "8d43ee",
+        "id": f"log_{int(time.time() * 1000)}_{uuid4().hex[:8]}",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
+
+
+def _resolve_browser_use() -> str:
+    """Resolve the browser-use CLI in the active venv (cross-platform)."""
+    override = os.getenv("BROWSER_USE_BIN")
+    if override:
+        return override
+    bin_dir = Path(sys.executable).parent
+    exe = "browser-use.exe" if sys.platform == "win32" else "browser-use"
+    return str(bin_dir / exe)
+
+
+BROWSER_USE = _resolve_browser_use()
 CAPTCHA_MODEL = "claude-haiku-4-5-20251001"
 
 _SCRAPER_JS = """
@@ -65,7 +98,13 @@ _SCRAPER_JS = """
 
 
 def _run(args: list[str], timeout: int = 15) -> str:
-    env = {**os.environ, "IN_DOCKER": "true", "DISPLAY": ":99"}
+    env = os.environ.copy()
+    # VPS runs browser-use against an Xvfb display on Linux. On macOS / Windows
+    # the OS provides a real display, so forcing DISPLAY=:99 makes Chromium
+    # attach to a non-existent X server and the subprocess hangs.
+    if sys.platform == "linux":
+        env.setdefault("DISPLAY", ":99")
+        env.setdefault("IN_DOCKER", "true")
     cmd_label = args[0]
     # Compact preview of args (truncate long JS/URLs)
     preview = " ".join(a if len(a) < 60 else a[:57] + "..." for a in args[1:])
@@ -214,14 +253,32 @@ def _attempt_captcha_solve(attempt: int) -> None:
     time.sleep(2)
 
 
-def _solve_captcha(max_attempts: int = 3) -> None:
+def _solve_captcha(max_attempts: int = 3, run_id: str = "pre-run") -> bool:
     captcha_start = time.perf_counter()
     if not _has_captcha():
         log.info("[builtwith] No captcha (check took %.1fs)",
                  time.perf_counter() - captcha_start)
-        return
+        # region agent log
+        _dbg(
+            "H6",
+            "backend/worker/builtwith_scraper.py:_solve_captcha",
+            "Captcha not present",
+            {"max_attempts": max_attempts},
+            run_id=run_id,
+        )
+        # endregion
+        return True
 
     log.info("[builtwith] Captcha detected, solving...")
+    # region agent log
+    _dbg(
+        "H6",
+        "backend/worker/builtwith_scraper.py:_solve_captcha",
+        "Captcha detected",
+        {"max_attempts": max_attempts},
+        run_id=run_id,
+    )
+    # endregion
     for attempt in range(1, max_attempts + 1):
         try:
             _attempt_captcha_solve(attempt)
@@ -236,23 +293,55 @@ def _solve_captcha(max_attempts: int = 3) -> None:
             log.info("[builtwith] Captcha verified solved on attempt %d (%.1fs total)",
                      attempt, time.perf_counter() - captcha_start,
                      extra={"duration_ms": round((time.perf_counter() - captcha_start) * 1000)})
-            return
+            # region agent log
+            _dbg(
+                "H6",
+                "backend/worker/builtwith_scraper.py:_solve_captcha",
+                "Captcha solved",
+                {"attempt": attempt},
+                run_id=run_id,
+            )
+            # endregion
+            return True
         log.warning("[builtwith] Captcha still present after attempt %d — retrying", attempt)
 
     # Out of attempts. Don't raise — let the caller see the empty-result page
     # and move on. Losing one domain is better than failing the whole run.
     log.warning("[builtwith] Gave up on captcha after %d attempts (%.1fs)",
                 max_attempts, time.perf_counter() - captcha_start)
+    # region agent log
+    _dbg(
+        "H6",
+        "backend/worker/builtwith_scraper.py:_solve_captcha",
+        "Captcha unresolved after max attempts",
+        {"max_attempts": max_attempts},
+        run_id=run_id,
+    )
+    # endregion
+    return False
 
 
 def scrape_relationships(domain: str) -> list[dict[str, Any]]:
     """Return BuiltWith relationship rows for domain. Empty list = no data."""
     url = f"https://builtwith.com/relationships/{domain}"
+    run_id = f"builtwith:{domain}"
     total_start = time.perf_counter()
     log.info("[builtwith] Opening %s", url)
 
     open_start = time.perf_counter()
-    _run(["open", url], timeout=90)
+    try:
+        _run(["open", url], timeout=90)
+    except Exception as e:
+        # region agent log
+        _dbg(
+            "H7",
+            "backend/worker/builtwith_scraper.py:scrape_relationships",
+            "Open failed",
+            {"domain": domain, "error": str(e)[:300]},
+            run_id=run_id,
+        )
+        # endregion
+        raise
     # Let the page settle — browser-use's CLI has a 60s socket recv timeout
     # internally, and the first eval after navigation frequently trips it
     # because the daemon is still busy processing async loads.
@@ -262,7 +351,7 @@ def scrape_relationships(domain: str) -> list[dict[str, Any]]:
              extra={"duration_ms": round(open_elapsed * 1000)})
 
     captcha_phase_start = time.perf_counter()
-    _solve_captcha()
+    captcha_solved = _solve_captcha(run_id=run_id)
     captcha_elapsed = time.perf_counter() - captcha_phase_start
     log.info("[builtwith] %s: captcha phase took %.1fs", domain, captcha_elapsed,
              extra={"duration_ms": round(captcha_elapsed * 1000)})
@@ -303,8 +392,26 @@ def scrape_relationships(domain: str) -> list[dict[str, Any]]:
             if probe.startswith("result: "):
                 probe = probe[len("result: "):]
             log.info("[builtwith] %s: empty-result page state: %s", domain, probe)
+            # region agent log
+            _dbg(
+                "H8",
+                "backend/worker/builtwith_scraper.py:scrape_relationships",
+                "Empty rows with page probe",
+                {"domain": domain, "captcha_solved": captcha_solved, "probe": json.loads(probe)},
+                run_id=run_id,
+            )
+            # endregion
         except Exception as e:
             log.debug("[builtwith] %s: empty-result probe failed: %s", domain, e)
+            # region agent log
+            _dbg(
+                "H8",
+                "backend/worker/builtwith_scraper.py:scrape_relationships",
+                "Empty rows and probe failed",
+                {"domain": domain, "captcha_solved": captcha_solved, "probe_error": str(e)[:300]},
+                run_id=run_id,
+            )
+            # endregion
     total_elapsed = time.perf_counter() - total_start
     log.info("[builtwith] %s -> %d relationship rows (total %.1fs: open=%.1fs captcha=%.1fs eval=%.1fs)",
              domain, len(rows), total_elapsed, open_elapsed, captcha_elapsed, eval_elapsed,
