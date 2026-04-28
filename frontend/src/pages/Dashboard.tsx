@@ -1,7 +1,15 @@
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Play, Clock, CheckCircle, XCircle, AlertTriangle, ArrowRight, Loader } from 'lucide-react'
-import { api, type Competitor, type ScanRun } from '@/api/client'
+import {
+  api,
+  DEFAULT_TRAVERSAL_MODEL,
+  TRAVERSAL_MODEL_OPTIONS,
+  type Competitor,
+  type ScanRun,
+  type TraversalModel,
+} from '@/api/client'
 import { cn, formatDate } from '@/lib/utils'
 
 function StatusBadge({ status }: { status: string }) {
@@ -35,11 +43,12 @@ function DriftBadge({ level }: { level: string | null }) {
 function CompetitorCard({ competitor, latestScan, onScan, jobStatus }: {
   competitor: Competitor
   latestScan: ScanRun | undefined
-  onScan: () => void
+  onScan: (traversalModel: TraversalModel) => void
   jobStatus: 'pending' | 'picked' | null
 }) {
   const navigate = useNavigate()
   const isActive = jobStatus !== null
+  const [traversalModel, setTraversalModel] = useState<TraversalModel>(DEFAULT_TRAVERSAL_MODEL)
 
   const buttonTitle = jobStatus === 'picked'
     ? 'Scanning…'
@@ -59,22 +68,35 @@ function CompetitorCard({ competitor, latestScan, onScan, jobStatus }: {
           </h3>
           <p className="text-xs text-text/60 mt-0.5 truncate max-w-[250px]">{competitor.funnel_url}</p>
         </div>
-        <button
-          onClick={onScan}
-          disabled={isActive}
-          className={cn(
-            'p-2.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center',
-            isActive
-              ? 'bg-accent/5 text-accent/40 cursor-not-allowed'
-              : 'bg-accent/10 text-accent hover:bg-accent/20'
-          )}
-          title={buttonTitle}
-        >
-          {isActive
-            ? <Loader size={16} className="animate-spin" />
-            : <Play size={16} />
-          }
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={traversalModel}
+            onChange={e => setTraversalModel(e.target.value as TraversalModel)}
+            disabled={isActive}
+            className="bg-bg border border-border rounded-lg px-2 py-2 text-xs text-text-bright focus:outline-none focus:border-accent disabled:opacity-40"
+            title="Traversal model"
+          >
+            {TRAVERSAL_MODEL_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => onScan(traversalModel)}
+            disabled={isActive}
+            className={cn(
+              'p-2.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center',
+              isActive
+                ? 'bg-accent/5 text-accent/40 cursor-not-allowed'
+                : 'bg-accent/10 text-accent hover:bg-accent/20'
+            )}
+            title={buttonTitle}
+          >
+            {isActive
+              ? <Loader size={16} className="animate-spin" />
+              : <Play size={16} />
+            }
+          </button>
+        </div>
       </div>
 
       {latestScan ? (
@@ -132,10 +154,10 @@ export function Dashboard() {
     activeJobsByCompetitor.set(job.competitor_id, job.status)
   }
 
-  const handleScan = async (competitorId: string) => {
+  const handleScan = async (competitorId: string, traversalModel: TraversalModel) => {
     if (activeJobsByCompetitor.has(competitorId)) return
     try {
-      await api.triggerScan(competitorId)
+      await api.triggerScan(competitorId, traversalModel)
       // Immediately refresh active jobs so spinner appears without waiting for next poll
       queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
     } catch {
@@ -192,7 +214,7 @@ export function Dashboard() {
               key={comp.id}
               competitor={comp}
               latestScan={latestByCompetitor.get(comp.id)}
-              onScan={() => handleScan(comp.id)}
+              onScan={traversalModel => handleScan(comp.id, traversalModel)}
               jobStatus={activeJobsByCompetitor.get(comp.id) ?? null}
             />
           ))}

@@ -2,6 +2,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 from backend.db import get_db
+from backend.config import DEFAULT_TRAVERSAL_MODEL
 from backend.models import ScanRunOut, ScanStepOut, ScanTrigger
 from typing import Any
 
@@ -15,7 +16,7 @@ def list_active_jobs() -> list[dict[str, Any]]:
     res = (
         get_db()
         .table("scan_jobs")
-        .select("id,competitor_id,status,created_at,picked_at")
+        .select("id,competitor_id,status,traversal_model,created_at,picked_at")
         .in_("status", ["pending", "picked"])
         .execute()
     )
@@ -83,7 +84,12 @@ def trigger_scan(body: ScanTrigger):
 
     res = (
         db.table("scan_jobs")
-        .insert({"competitor_id": body.competitor_id, "priority": body.priority, "status": "pending"})
+        .insert({
+            "competitor_id": body.competitor_id,
+            "priority": body.priority,
+            "status": "pending",
+            "traversal_model": body.traversal_model or DEFAULT_TRAVERSAL_MODEL,
+        })
         .execute()
     )
     log.info("Scan job enqueued: job=%s competitor=%s priority=%d", res.data[0]["id"], body.competitor_id, body.priority)

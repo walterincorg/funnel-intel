@@ -2,7 +2,13 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Play, ExternalLink, CheckCircle, XCircle, Clock, AlertTriangle, ChevronDown, Sparkles } from 'lucide-react'
-import { api, type BuiltWithRelationship } from '@/api/client'
+import {
+  api,
+  DEFAULT_TRAVERSAL_MODEL,
+  TRAVERSAL_MODEL_OPTIONS,
+  type BuiltWithRelationship,
+  type TraversalModel,
+} from '@/api/client'
 import { cn, formatDate, checkActive, getPrevRunCutoff } from '@/lib/utils'
 
 function RelatedDomainsSection({ rows, prevRunAt }: { rows: BuiltWithRelationship[]; prevRunAt: string | null }) {
@@ -115,6 +121,7 @@ export function CompetitorDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [traversalModel, setTraversalModel] = useState<TraversalModel>(DEFAULT_TRAVERSAL_MODEL)
 
   const { data: competitor, isLoading: loadingComp } = useQuery({
     queryKey: ['competitor', id],
@@ -150,7 +157,7 @@ export function CompetitorDetail() {
 
   const handleScan = async () => {
     if (!id || isScanning) return
-    await api.triggerScan(id)
+    await api.triggerScan(id, traversalModel)
     queryClient.invalidateQueries({ queryKey: ['active-jobs'] })
   }
 
@@ -194,14 +201,31 @@ export function CompetitorDetail() {
               {competitor.funnel_url} <ExternalLink size={12} />
             </a>
           </div>
-          <button
-            onClick={handleScan}
-            disabled={isScanning}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/80 disabled:opacity-50 transition-colors"
-          >
-            {isScanning ? <Clock size={16} className="animate-pulse" /> : <Play size={16} />}
-            {isScanning ? 'Scanning...' : 'Scan Now'}
-          </button>
+          <div className="flex items-end gap-2">
+            <label className="block">
+              <span className="block text-xs text-text/50 mb-1">Traversal model</span>
+              <select
+                value={traversalModel}
+                onChange={e => setTraversalModel(e.target.value as TraversalModel)}
+                disabled={isScanning}
+                className="bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text-bright focus:outline-none focus:border-accent disabled:opacity-50"
+              >
+                {TRAVERSAL_MODEL_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              onClick={handleScan}
+              disabled={isScanning}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/80 disabled:opacity-50 transition-colors"
+            >
+              {isScanning ? <Clock size={16} className="animate-pulse" /> : <Play size={16} />}
+              {isScanning ? 'Scanning...' : 'Scan Now'}
+            </button>
+          </div>
         </div>
       </div>
 
