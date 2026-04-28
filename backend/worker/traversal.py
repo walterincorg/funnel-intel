@@ -494,6 +494,55 @@ def _build_tools() -> Tools:
         except Exception as e:
             return ActionResult(error=f"bypass_mini_game failed: {e}")
 
+    @tools.registry.action(
+        "Upload the bundled Nebula palm photo into the current page's first visible file input. "
+        "Use on Nebula's palm-scan screen when no indexed file input is reachable."
+    )
+    async def upload_palm_image(browser_session):
+        if not _PALM_IMAGE_PATH.exists():
+            return ActionResult(error="Bundled palm image not present on disk")
+        try:
+            page = await browser_session.get_current_page()
+            handle = await page.evaluate(
+                """
+                () => {
+                  const visible = (el) => { const r = el.getBoundingClientRect(); return (r.width > 0 && r.height > 0) || el.offsetParent !== null; };
+                  const roots = [];
+                  const walk = (node) => { roots.push(node); node.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); }); };
+                  walk(document);
+                  const inputs = roots.flatMap((r) => Array.from(r.querySelectorAll('input[type="file"]')));
+                  if (!inputs.length) return false;
+                  const target = inputs.find(visible) || inputs[0];
+                  target.setAttribute('data-funnel-upload', 'palm');
+                  return true;
+                }
+                """
+            )
+            if not handle:
+                return ActionResult(error="No file input found in DOM")
+            try:
+                file_input = await page.query_selector('input[type="file"][data-funnel-upload="palm"]')
+                if not file_input:
+                    return ActionResult(error="Tagged file input could not be located")
+                await file_input.set_input_files(str(_PALM_IMAGE_PATH))
+                msg = f"Uploaded palm image {_PALM_IMAGE_PATH.name} via deterministic helper"
+                log.info("[upload_palm_image] %s", msg)
+                return ActionResult(extracted_content=msg)
+            finally:
+                try:
+                    await page.evaluate(
+                        """
+                        () => {
+                          const el = document.querySelector('input[type="file"][data-funnel-upload="palm"]');
+                          if (el) el.removeAttribute('data-funnel-upload');
+                        }
+                        """
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            return ActionResult(error=f"upload_palm_image failed: {e}")
+
     return tools
 
 
@@ -786,10 +835,46 @@ async def _auto_recover_page(browser: Browser, snapshot: dict) -> str | None:
     is_products = "choose the products you like" in text
     is_dob = bool(re.search(r'\b(date of birth|birth date|d\.?o\.?b\.?|day .*? month .*? year|month .*? day .*? year|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', text)) and "year" in text and ("month" in text or "day" in text)
     is_email_gate = "enter your email" in text or "invalid email" in text or ("email" in text and "save your" in text)
-    if not (is_products or is_dob or is_email_gate):
+    is_palm_scan = "scan my palm" in text or ("palm" in text and "upload" in text)
+    if not (is_products or is_dob or is_email_gate or is_palm_scan):
         return None
     try:
         page = await browser.get_current_page()
+        if is_palm_scan and _PALM_IMAGE_PATH.exists():
+            try:
+                tagged = await page.evaluate(
+                    """
+                    () => {
+                      const visible = (el) => { const r = el.getBoundingClientRect(); return (r.width > 0 && r.height > 0) || el.offsetParent !== null; };
+                      const roots = [];
+                      const walk = (node) => { roots.push(node); node.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); }); };
+                      walk(document);
+                      const inputs = roots.flatMap((r) => Array.from(r.querySelectorAll('input[type="file"]')));
+                      if (!inputs.length) return false;
+                      const target = inputs.find(visible) || inputs[0];
+                      target.setAttribute('data-funnel-upload', 'palm');
+                      return true;
+                    }
+                    """
+                )
+                if tagged:
+                    file_input = await page.query_selector('input[type="file"][data-funnel-upload="palm"]')
+                    if file_input:
+                        await file_input.set_input_files(str(_PALM_IMAGE_PATH))
+                        try:
+                            await page.evaluate(
+                                """
+                                () => {
+                                  const el = document.querySelector('input[type="file"][data-funnel-upload="palm"]');
+                                  if (el) el.removeAttribute('data-funnel-upload');
+                                }
+                                """
+                            )
+                        except Exception:
+                            pass
+                        return f"auto uploaded {Path(_PALM_IMAGE_PATH).name}"
+            except Exception as e:
+                log.debug("auto palm upload failed: %s", e)
         if is_email_gate:
             result = await page.evaluate(
                 """
