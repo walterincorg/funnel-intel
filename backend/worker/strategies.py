@@ -84,8 +84,16 @@ IMPORTANT BROWSING RULES:
 - ANSWER OPTIONS ARE VALID CLICK TARGETS: Funnels often need you to click an answer option (like "Yes", "Mid-sized", "Lose weight") which then auto-advances OR enables a Continue button. Both patterns are normal. Click the answer first; only then look for Continue.
 
 PRICING PAGE — when you reach a pricing/checkout/subscription/plan-selection page:
-This is the most important data we extract. When you see one, scroll if needed to
-make every plan tile visible, then capture data and stop.
+This is the most important data we extract. When you see one:
+  1. WAIT for the page to settle. Many funnels (Mad Muscles wheel-spin,
+     BetterMe scratch-card) reveal their discount a few seconds after arrival.
+     Use the wait action for at least 4 seconds before capturing.
+  2. If a wheel-of-fortune / scratch-card / "claim discount" call-to-action is
+     visible, click it ONCE so the discount is revealed on the tiles. Do NOT
+     keep clicking — one interaction is enough.
+  3. Scroll to the very top of the page, then slowly scroll down so every
+     plan tile, every strikethrough price, and every footnote is visible.
+  4. Then call done with the JSON described below.
 
 When you call the `done` action at the end of the run, the `text` field MUST be a
 JSON string with this exact shape:

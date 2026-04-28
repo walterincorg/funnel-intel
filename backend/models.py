@@ -99,6 +99,7 @@ class PricingSnapshotOut(BaseModel):
     captured_at_step: int | None = None
     url: str | None = None
     screenshot_path: str | None = None
+    metadata: dict | None = None
     created_at: datetime | None = None
 
 
