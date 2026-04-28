@@ -58,17 +58,17 @@ function CompetitorCard({ competitor, latestScan, onScan, jobStatus }: {
 
   return (
     <div className="bg-bg-card rounded-xl border border-border p-5 hover:border-accent/30 transition-colors">
-      <div className="flex items-start justify-between mb-3">
-        <div>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0 flex-1">
           <h3
-            className="text-text-bright font-medium cursor-pointer hover:text-accent transition-colors"
+            className="text-text-bright font-medium cursor-pointer hover:text-accent transition-colors truncate"
             onClick={() => navigate(`/competitors/${competitor.id}`)}
           >
             {competitor.name}
           </h3>
-          <p className="text-xs text-text/60 mt-0.5 truncate max-w-[250px]">{competitor.funnel_url}</p>
+          <p className="text-xs text-text/60 mt-0.5 truncate">{competitor.funnel_url}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <select
             value={traversalModel}
             onChange={e => setTraversalModel(e.target.value as TraversalModel)}

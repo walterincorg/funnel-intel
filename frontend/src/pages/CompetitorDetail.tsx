@@ -189,19 +189,19 @@ export function CompetitorDetail() {
 
       {/* Header */}
       <div className="bg-bg-card rounded-xl border border-border p-6 mb-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-text-bright">{competitor.name}</h1>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-semibold text-text-bright truncate">{competitor.name}</h1>
             <a
               href={competitor.funnel_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-accent hover:underline flex items-center gap-1 mt-1"
+              className="text-sm text-accent hover:underline flex items-center gap-1 mt-1 truncate"
             >
-              {competitor.funnel_url} <ExternalLink size={12} />
+              <span className="truncate">{competitor.funnel_url}</span> <ExternalLink size={12} className="flex-shrink-0" />
             </a>
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 flex-shrink-0">
             <label className="block">
               <span className="block text-xs text-text/50 mb-1">Traversal model</span>
               <select
