@@ -371,8 +371,12 @@ correctly:
 
 5. ECOMMERCE SUPPLY (e.g. Bioma). Tiles are "1-month supply", "3-month
    supply", "6-month supply" with subscribe vs one-time toggles. plan_id
-   should be e.g. "3-month-subscribe" or "3-month-onetime", and
-   billing_cycle_weeks should reflect the supply window (3 months ≈ 13).
+   should be e.g. "3-month-subscribe" or "3-month-onetime". The displayed
+   price is per-bottle (often labelled "$X / bottle"); set total_price to
+   the per-bottle price and set billing_cycle_weeks=4 (monthly billing per
+   bottle), NOT the supply window. The supply window goes into the plan
+   name only. This makes monthly-equivalent comparisons work — the customer
+   pays $X every month for 6 months on a 6-month subscribe plan.
 
 6. ONE-TIME / LIFETIME plans. Set renewal=null and billing_cycle_weeks=null.
 
@@ -544,16 +548,73 @@ def _wrap(payload: dict, model: str) -> dict:
     payload.setdefault("trial", {"exists": False})
     payload["extractor_version"] = PRICING_EXTRACTOR_VERSION
     payload["extractor_model"] = model
-    # Compute monthly equivalents to make the chart comparable across plans.
+    sanity_warnings: list[str] = []
+
     for plan in payload.get("plans") or []:
         cycle = plan.get("billing_cycle_weeks")
-        intro = (plan.get("intro") or {}).get("total_price")
-        renewal = (plan.get("renewal") or {}).get("total_price")
+        intro = plan.get("intro") or {}
+        renewal = plan.get("renewal") or {}
+        intro_total = intro.get("total_price")
+        intro_per_day = intro.get("per_day_price")
+        renewal_total = renewal.get("total_price")
+
+        # Sanity check 1: small intro total + per-day available + cycle known
+        # → the total is almost certainly the per-day value mis-classified.
+        # Mad Muscles' "12 WEEK PLAN $0.98" (per day) where the real total is
+        # $82.32 hits this every time.
+        if (
+            isinstance(intro_total, (int, float))
+            and isinstance(intro_per_day, (int, float))
+            and isinstance(cycle, (int, float)) and cycle > 0
+            and intro_total < 5.0
+            and intro_per_day > 0
+            and abs(intro_total - intro_per_day) < 0.05
+        ):
+            corrected = round(intro_per_day * cycle * 7, 2)
+            if corrected > intro_total + 1:
+                sanity_warnings.append(
+                    f"Plan {plan.get('plan_id')}: total_price={intro_total} looked like per-day "
+                    f"({intro_per_day}/day) — corrected to {corrected} from {cycle}-week cycle"
+                )
+                intro["total_price"] = corrected
+                plan["intro"] = intro
+                intro_total = corrected
+
+        # Sanity check 2: same logic for renewal.
+        renewal_per_day = renewal.get("per_day_price")
+        if (
+            isinstance(renewal_total, (int, float))
+            and isinstance(renewal_per_day, (int, float))
+            and isinstance(cycle, (int, float)) and cycle > 0
+            and renewal_total < 5.0
+            and renewal_per_day > 0
+            and abs(renewal_total - renewal_per_day) < 0.05
+        ):
+            corrected = round(renewal_per_day * cycle * 7, 2)
+            if corrected > renewal_total + 1:
+                sanity_warnings.append(
+                    f"Plan {plan.get('plan_id')}: renewal total_price={renewal_total} looked like "
+                    f"per-day — corrected to {corrected}"
+                )
+                renewal["total_price"] = corrected
+                plan["renewal"] = renewal
+                renewal_total = corrected
+
+        # Compute monthly equivalents AFTER any corrections.
         if cycle and isinstance(cycle, (int, float)) and cycle > 0:
-            if isinstance(intro, (int, float)):
-                plan["monthly_equivalent"] = round(intro * (4.345 / cycle), 4)
-            if isinstance(renewal, (int, float)):
-                plan["renewal_monthly_equivalent"] = round(renewal * (4.345 / cycle), 4)
+            if isinstance(intro_total, (int, float)):
+                plan["monthly_equivalent"] = round(intro_total * (4.345 / cycle), 4)
+            if isinstance(renewal_total, (int, float)):
+                plan["renewal_monthly_equivalent"] = round(renewal_total * (4.345 / cycle), 4)
+
+    if sanity_warnings:
+        existing = (payload.get("notes") or "").strip()
+        prefix = (existing + " ") if existing else ""
+        payload["notes"] = (
+            prefix + "[sanity-check] " + "; ".join(sanity_warnings)
+        )[:1500]
+        log.warning("Vision extractor sanity-check applied: %s", sanity_warnings)
+
     return payload
 
 

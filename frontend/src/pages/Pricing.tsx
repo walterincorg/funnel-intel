@@ -77,7 +77,7 @@ function VisionPlanRow({ plan, currency }: { plan: VisionPlan; currency: string 
 }
 
 function PricingCard({ snapshot, competitor }: { snapshot: PricingSnapshot; competitor: Competitor | undefined }) {
-  const vision = snapshot.metadata?.vision
+  const vision = snapshot.trial_info?._vision
   const currency = vision?.currency ?? snapshot.plans?.find(p => p.currency)?.currency ?? 'USD'
 
   return (

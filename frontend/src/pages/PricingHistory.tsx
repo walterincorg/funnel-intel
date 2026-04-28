@@ -17,7 +17,7 @@ function parsePrice(raw: string | number | null | undefined): number | null {
 
 function pickCurrency(snapshot: PricingSnapshot): string {
   return (
-    snapshot.metadata?.vision?.currency
+    snapshot.trial_info?._vision?.currency
     ?? snapshot.plans?.find(p => p.currency)?.currency
     ?? 'USD'
   )
@@ -96,9 +96,9 @@ function normalizeHistory(snapshots: PricingSnapshot[]): NormalizedHistory {
 
   sorted.forEach((snapshot, idx) => {
     if (idx === 0) currency = pickCurrency(snapshot)
-    else if (snapshot.metadata?.vision?.currency) currency = snapshot.metadata.vision.currency
+    else if (snapshot.trial_info?._vision?.currency) currency = snapshot.trial_info._vision.currency
 
-    const visionPlans: VisionPlan[] | null = snapshot.metadata?.vision?.plans ?? null
+    const visionPlans: VisionPlan[] | null = snapshot.trial_info?._vision?.plans ?? null
     if (visionPlans && visionPlans.length > 0) {
       hasVision = true
       for (const plan of visionPlans) {
@@ -589,10 +589,10 @@ function CompetitorHistoryCard({ competitor, snapshots }: { competitor: Competit
           ) : null}
 
           {/* Extractor hints — surface what the model said in the latest snapshot */}
-          {history.snapshots[sorted.length - 1]?.metadata?.vision?.notes && (
+          {history.snapshots[sorted.length - 1]?.trial_info?._vision?.notes && (
             <div className="px-5 py-3 border-t border-border/30 text-[11px] text-text/45 leading-snug flex gap-2">
               <Tag size={11} className="mt-[2px] flex-shrink-0" />
-              <span><span className="text-text/60 font-medium">Extractor note: </span>{history.snapshots[sorted.length - 1]!.metadata!.vision!.notes}</span>
+              <span><span className="text-text/60 font-medium">Extractor note: </span>{history.snapshots[sorted.length - 1]!.trial_info!._vision!.notes}</span>
             </div>
           )}
         </>

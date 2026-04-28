@@ -135,20 +135,24 @@ def _refine_pricing_with_vision(
         )
         return
 
-    metadata = dict(pricing.get("metadata") or {})
-    metadata["vision"] = vision
-    metadata["legacy_plans_pre_vision"] = pricing.get("plans") or []
-    metadata["legacy_discounts_pre_vision"] = pricing.get("discounts") or []
-    metadata["legacy_trial_pre_vision"] = pricing.get("trial_info") or {}
-    metadata["pricing_extractor_version"] = PRICING_EXTRACTOR_VERSION
-    pricing["metadata"] = metadata
+    # The live DB does not have the planned `pricing_snapshots.metadata`
+    # column yet, and the user explicitly asked us not to touch the schema.
+    # We stash the rich payload inside the existing `trial_info` jsonb column
+    # under a single underscore-prefixed key. Old readers ignore unknown keys
+    # so this is fully additive.
+    trial_info = dict(legacy.get("trial_info") or {})
+    trial_info["_vision"] = vision
+    trial_info["_pricing_extractor_version"] = PRICING_EXTRACTOR_VERSION
+    trial_info["_legacy_plans_pre_vision"] = pricing.get("plans") or []
+    trial_info["_legacy_discounts_pre_vision"] = pricing.get("discounts") or []
+
     pricing["plans"] = plans
     pricing["discounts"] = legacy.get("discounts") or []
-    pricing["trial_info"] = legacy.get("trial_info") or {}
+    pricing["trial_info"] = trial_info
     log.info(
         "[vision-pricing] Refined pricing for %s: %d plans, %d discounts, trial=%s",
         competitor_name, len(plans), len(legacy.get("discounts") or []),
-        (legacy.get("trial_info") or {}).get("has_trial"),
+        trial_info.get("has_trial"),
     )
 
 
@@ -402,7 +406,10 @@ def process_job(job: dict):
         progress_log = _progress_log_buffer
 
         # Store pricing if captured (skip empty snapshots where agent tagged
-        # a page as pricing but extracted no actual plan/discount/trial data)
+        # a page as pricing but extracted no actual plan/discount/trial data).
+        # Vision payload is stashed inside trial_info under `_vision` because
+        # the planned pricing_snapshots.metadata column is not yet applied to
+        # the live DB and the user asked us not to touch the schema.
         pricing = result["pricing"]
         if _has_pricing_evidence(pricing):
             db.table("pricing_snapshots").insert({
@@ -414,7 +421,6 @@ def process_job(job: dict):
                 "captured_at_step": pricing.get("step_number"),
                 "url": pricing.get("url"),
                 "screenshot_path": pricing.get("screenshot_path"),
-                "metadata": pricing.get("metadata"),
             }).execute()
 
         # Update run as completed

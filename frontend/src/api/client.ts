@@ -111,6 +111,13 @@ export interface PricingTrialInfo {
   trial_price?: string | null
   renews_at?: number | null
   renews_every?: string | null
+  /** v2 vision extractor payload (stashed here because the planned dedicated
+   * metadata column on `pricing_snapshots` has not been applied to the live
+   * DB yet — additive jsonb keys keep us schema-stable). */
+  _vision?: VisionPricing
+  _pricing_extractor_version?: string
+  _legacy_plans_pre_vision?: PricingPlanLegacy[]
+  _legacy_discounts_pre_vision?: PricingDiscount[]
 }
 
 export interface VisionPlan {
@@ -146,12 +153,11 @@ export interface PricingSnapshot {
   competitor_id: string
   plans: PricingPlanLegacy[] | null
   discounts: PricingDiscount[] | null
+  /** Note: also carries the v2 vision payload under `trial_info._vision`. */
   trial_info: PricingTrialInfo | null
   captured_at_step: number | null
   url: string | null
   screenshot_path: string | null
-  /** v2 vision extractor data is stashed here under `vision`. */
-  metadata: { vision?: VisionPricing; pricing_extractor_version?: string } | null
   created_at: string
 }
 
