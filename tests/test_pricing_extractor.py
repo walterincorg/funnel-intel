@@ -35,12 +35,13 @@ def test_wrap_computes_monthly_equivalents():
     assert wrapped["extractor_version"] == PRICING_EXTRACTOR_VERSION
     assert wrapped["extractor_model"] == "claude-sonnet-4-6"
     week_plan = wrapped["plans"][1]
-    # Intro $15.19 across 4 weeks = $4.345/wk × 1 = $16.49/mo (4.345 weeks)
-    assert abs(week_plan["monthly_equivalent"] - 16.50) < 0.05
-    # Renewal $38.95 across 4 weeks ≈ $42.31/mo
-    assert abs(week_plan["renewal_monthly_equivalent"] - 42.31) < 0.1
-    # 12-week renewal absent → no renewal_monthly_equivalent
+    # 4-week cycle is treated as "monthly" billing → equivalent equals tile.
+    assert abs(week_plan["monthly_equivalent"] - 15.19) < 0.05
+    assert abs(week_plan["renewal_monthly_equivalent"] - 38.95) < 0.05
+    # 12-week tile: $36.99 across 12 weeks = $36.99 × (4/12) = $12.33/mo
     twelve = wrapped["plans"][2]
+    assert abs(twelve["monthly_equivalent"] - 12.33) < 0.05
+    # 12-week renewal absent → no renewal_monthly_equivalent
     assert "renewal_monthly_equivalent" not in twelve
 
 
@@ -105,3 +106,41 @@ def test_vision_to_legacy_handles_empty():
     assert legacy["plans"] == []
     assert legacy["discounts"] == []
     assert legacy["trial_info"]["has_trial"] is False
+
+
+def test_wrap_normalises_ecommerce_supply():
+    """Bioma-style supply tiles get rewritten to a stable schema:
+    - bottle slugs become month slugs
+    - billing_cycle_weeks is forced to 4 (monthly billing)
+    - plan_id gets the -subscribe suffix when missing
+    """
+    raw = {
+        "page_kind": "ecommerce_supply",
+        "currency": "USD",
+        "plans": [
+            {"plan_id": "6-bottle", "display_name": "6-month supply",
+             "billing_cycle_weeks": 26,
+             "intro": {"total_price": 25.71, "per_day_price": 0.86}},
+            {"plan_id": "3-month", "display_name": "3-month supply",
+             "billing_cycle_weeks": 13,
+             "intro": {"total_price": 35.31}},
+            {"plan_id": "1-MONTH-Subscribe", "display_name": "1-month supply",
+             "billing_cycle_weeks": None,
+             "intro": {"total_price": 47.99}},
+        ],
+        "trial": {"exists": False},
+        "discounts": [],
+    }
+    wrapped = _wrap(raw, "claude-sonnet-4-6")
+    plans = wrapped["plans"]
+    # bottle → month + subscribe suffix added
+    assert plans[0]["plan_id"] == "6-month-subscribe"
+    # already canonical month form, just suffix added
+    assert plans[1]["plan_id"] == "3-month-subscribe"
+    # capitalisation normalised, suffix already present
+    assert plans[2]["plan_id"] == "1-month-subscribe"
+    # cycle forced to 4 across the board (monthly billing)
+    assert all(p["billing_cycle_weeks"] == 4 for p in plans)
+    # monthly_equivalent now equals the per-bottle price
+    assert abs(plans[0]["monthly_equivalent"] - 25.71) < 0.05
+    assert abs(plans[2]["monthly_equivalent"] - 47.99) < 0.05

@@ -371,24 +371,35 @@ correctly:
 
 5. ECOMMERCE SUPPLY (e.g. Bioma). Tiles are "1-month supply", "3-month
    supply", "6-month supply" with subscribe vs one-time toggles. plan_id
-   should be e.g. "3-month-subscribe" or "3-month-onetime". The displayed
-   price is per-bottle (often labelled "$X / bottle"); set total_price to
-   the per-bottle price and set billing_cycle_weeks=4 (monthly billing per
-   bottle), NOT the supply window. The supply window goes into the plan
-   name only. This makes monthly-equivalent comparisons work — the customer
-   pays $X every month for 6 months on a 6-month subscribe plan.
+   MUST be e.g. "3-month-subscribe" or "3-month-onetime". The displayed
+   price is **per bottle / per month** (often labelled "$X / bottle" or
+   "$X / month") — the customer is billed that amount EVERY month for the
+   full supply window. So:
+       intro.total_price = per-bottle price (NOT per-bottle × supply months)
+       billing_cycle_weeks = 4   (monthly billing — ALWAYS 4 for these tiles,
+                                  EVEN for the 6-month-supply tile, because
+                                  the customer pays $X every month, not $X
+                                  once for 6 months)
+       per_day_price       = per-day breakdown if the tile shows one
+   The supply window ("3-month", "6-month") goes into the plan_id slug and
+   the display_name ONLY. Setting billing_cycle_weeks to 13 / 26 will make
+   the chart show absurd $4/mo equivalents and is WRONG.
 
 6. ONE-TIME / LIFETIME plans. Set renewal=null and billing_cycle_weeks=null.
 
 Plan-id rules (CRITICAL — these slugs become the chart series identifiers):
 - Lowercase only. ASCII only. Use hyphens.
-- Use the billing window: "1-week", "4-week", "12-week", "24-week",
-  "1-month", "3-month", "6-month", "12-month", "1-bottle", "3-bottle",
-  "6-bottle", "lifetime".
+- Use the billing window from the marketing copy: "1-week", "4-week",
+  "12-week", "24-week", "1-month", "3-month", "6-month", "12-month",
+  "lifetime". NEVER invent a different unit just because the page mentions
+  bottles or sessions — if the tiles are labelled "3-month supply", use
+  "3-month", not "3-bottle". The slug describes the SUPPLY WINDOW the
+  customer sees on the tile, not the underlying SKU count.
 - For ecommerce add the mode suffix when both exist: "3-month-subscribe" /
-  "3-month-onetime".
+  "3-month-onetime". For pure subscription tiers no suffix is needed.
 - Same tile across scans MUST get the same plan_id even if the marketing
-  copy changes ("4-WEEK PLAN" → "4 Week Plan" → "Best Value (4w)").
+  copy changes ("4-WEEK PLAN" → "4 Week Plan" → "Best Value (4w)") and
+  even if the tile ordering on the page changes between scans.
 
 7. NEVER INVENT A RENEWAL PRICE. Only fill the renewal block if the page
    itself explicitly says "then $X every Y" or "auto-renews at $X". If the
@@ -551,6 +562,40 @@ def extract_from_screenshot(
     return _wrap(second, model)
 
 
+_PLAN_ID_ALIASES = {
+    # Bottle slugs → month slugs (Bioma occasionally re-labels supply tiles)
+    "1-bottle": "1-month",
+    "3-bottle": "3-month",
+    "6-bottle": "6-month",
+    "12-bottle": "12-month",
+    # Common spelling drift
+    "one-week": "1-week",
+    "four-week": "4-week",
+    "twelve-week": "12-week",
+    "1week": "1-week",
+    "4week": "4-week",
+    "12week": "12-week",
+    "24week": "24-week",
+}
+
+
+def _canonicalise_plan_id(plan_id: str | None, page_kind: str) -> str | None:
+    if not plan_id:
+        return plan_id
+    cleaned = plan_id.strip().lower().replace("_", "-")
+    base = _PLAN_ID_ALIASES.get(cleaned, cleaned)
+    # On ecommerce-supply pages, the slug should ALWAYS carry the
+    # subscribe / onetime suffix so the chart never collapses Subscribe-mode
+    # and One-time-mode tiles into the same series. Default to subscribe
+    # because that's the typical pre-selected toggle.
+    if page_kind == "ecommerce_supply":
+        if not (base.endswith("-subscribe") or base.endswith("-onetime") or base.endswith("-one-time")):
+            base = f"{base}-subscribe"
+        elif base.endswith("-one-time"):
+            base = base[:-len("-one-time")] + "-onetime"
+    return base
+
+
 def _wrap(payload: dict, model: str) -> dict:
     payload = dict(payload)
     payload.setdefault("plans", [])
@@ -560,7 +605,35 @@ def _wrap(payload: dict, model: str) -> dict:
     payload["extractor_model"] = model
     sanity_warnings: list[str] = []
 
+    page_kind = (payload.get("page_kind") or "").lower()
+
     for plan in payload.get("plans") or []:
+        # Normalise the plan_id BEFORE the rest of the sanity checks so any
+        # warnings reference the canonical slug.
+        canonical = _canonicalise_plan_id(plan.get("plan_id"), page_kind)
+        if canonical and canonical != plan.get("plan_id"):
+            sanity_warnings.append(
+                f"plan_id {plan.get('plan_id')!r} normalised to {canonical!r}"
+            )
+            plan["plan_id"] = canonical
+        # Sanity check 0: ecommerce-supply tiles bill the per-bottle price
+        # EVERY month, so the cycle is always ~4 weeks regardless of the
+        # supply window. The model occasionally writes 13 / 26 weeks for the
+        # supply window and that produces absurd monthly equivalents like
+        # $4.30/mo for a $25.71 / month subscribe plan. Force it back.
+        if page_kind == "ecommerce_supply":
+            current_cycle = plan.get("billing_cycle_weeks")
+            if current_cycle and isinstance(current_cycle, (int, float)) and current_cycle > 6:
+                sanity_warnings.append(
+                    f"Plan {plan.get('plan_id')}: billing_cycle_weeks={current_cycle} "
+                    "looked like the supply window — forced to 4 (monthly billing) "
+                    "for ecommerce_supply page"
+                )
+                plan["billing_cycle_weeks"] = 4
+            elif not current_cycle:
+                # Missing cycle on an ecommerce-supply tile — assume monthly.
+                plan["billing_cycle_weeks"] = 4
+
         cycle = plan.get("billing_cycle_weeks")
         intro = plan.get("intro") or {}
         renewal = plan.get("renewal") or {}
@@ -611,11 +684,17 @@ def _wrap(payload: dict, model: str) -> dict:
                 renewal_total = corrected
 
         # Compute monthly equivalents AFTER any corrections.
+        # Convention: cycle == 4 weeks is treated as "monthly" billing — the
+        # customer pays the same amount every month, no rate-conversion. For
+        # any other cycle (1-week trials, 12-week plans, etc.) we scale by
+        # the ratio of 4 weeks to the cycle length so all plans land on the
+        # same Y axis.
         if cycle and isinstance(cycle, (int, float)) and cycle > 0:
+            scale = 4.0 / cycle
             if isinstance(intro_total, (int, float)):
-                plan["monthly_equivalent"] = round(intro_total * (4.345 / cycle), 4)
+                plan["monthly_equivalent"] = round(intro_total * scale, 4)
             if isinstance(renewal_total, (int, float)):
-                plan["renewal_monthly_equivalent"] = round(renewal_total * (4.345 / cycle), 4)
+                plan["renewal_monthly_equivalent"] = round(renewal_total * scale, 4)
 
     if sanity_warnings:
         existing = (payload.get("notes") or "").strip()
