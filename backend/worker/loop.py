@@ -6,8 +6,10 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from backend.db import get_db
+from backend.config import DEFAULT_TRAVERSAL_MODEL, SUPABASE_STORAGE_BUCKET
 from backend.worker.traversal import run_traversal_sync
 from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
@@ -28,6 +30,81 @@ IS_PRIMARY = WORKER_ID == "1"
 # Scans can take a long time (funnel crawls); ad scrapes are fast.
 STALE_AGE_SCANS = timedelta(minutes=45)
 STALE_AGE_AD_SCRAPES = timedelta(minutes=15)
+
+
+def _upload_scan_artifacts(db, run_id: str, items: list[dict]) -> None:
+    """Upload local screenshots and replace paths with storage object paths."""
+    for item in items:
+        local_path = item.get("screenshot_path")
+        if not local_path or str(local_path).startswith("scan-screenshots/"):
+            continue
+        try:
+            path = Path(local_path)
+            if not path.is_file():
+                continue
+            object_path = f"scan-screenshots/{run_id}/{path.name}"
+            db.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+                object_path,
+                path.read_bytes(),
+                file_options={"content-type": "image/png", "x-upsert": "true"},
+            )
+            item["screenshot_path"] = object_path
+        except Exception:
+            log.warning("Failed to upload screenshot %s", local_path, exc_info=True)
+
+
+def _has_pricing_evidence(pricing: dict | None) -> bool:
+    if not pricing:
+        return False
+    if pricing.get("plans"):
+        return True
+    if pricing.get("discounts"):
+        return True
+    trial = pricing.get("trial_info")
+    if isinstance(trial, dict):
+        return bool(trial.get("has_trial") or trial.get("trial_days") or trial.get("trial_price"))
+    return False
+
+
+def _attach_pricing_screenshot(pricing: dict | None, steps: list[dict]) -> None:
+    if not pricing or pricing.get("screenshot_path"):
+        return
+    pricing_url = pricing.get("url")
+    candidates = []
+    for step in steps:
+        shot = step.get("screenshot_path")
+        if not shot:
+            continue
+        url = step.get("url") or ""
+        text = (step.get("visible_text") or "").lower()
+        score = 0
+        if pricing_url and url == pricing_url:
+            score += 10
+        if any(token in url.lower() for token in ("offer", "checkout", "purchase", "paywall")):
+            score += 5
+        if any(token in text for token in ("choose your plan", "get my plan", "subscription", "billed", "$", "usd")):
+            score += 3
+        if score:
+            candidates.append((score, step.get("step_number", 0), shot))
+    if candidates:
+        candidates.sort()
+        pricing["screenshot_path"] = candidates[-1][2]
+
+
+def _upload_screenshot(local_path: str | None, remote_path: str) -> str | None:
+    if not local_path:
+        return None
+    try:
+        with open(local_path, "rb") as f:
+            get_db().storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+                remote_path,
+                f.read(),
+                file_options={"content-type": "image/png", "upsert": "true"},
+            )
+        return remote_path
+    except Exception:
+        log.exception("Failed to upload screenshot %s", local_path)
+        return local_path
 
 
 def cleanup_stale_jobs():
@@ -125,6 +202,7 @@ def process_job(job: dict):
     job_start = time.perf_counter()
     db = get_db()
     competitor_id = job["competitor_id"]
+    traversal_model = job.get("traversal_model") or DEFAULT_TRAVERSAL_MODEL
 
     # Fetch competitor
     comp = db.table("competitors").select("*").eq("id", competitor_id).single().execute().data
@@ -143,12 +221,16 @@ def process_job(job: dict):
     }).execute().data[0]
 
     run_id = run["id"]
-    log.info("Starting scan %s for %s (job=%s)", run_id, comp["name"], job["id"],
-             extra={"run_id": run_id, "competitor_id": competitor_id, "job_id": job["id"]})
+    log.info("Starting scan %s for %s (job=%s model=%s)",
+             run_id, comp["name"], job["id"], traversal_model,
+             extra={"run_id": run_id, "competitor_id": competitor_id,
+                    "job_id": job["id"], "traversal_model": traversal_model})
 
     # Check for baseline
     baseline_run, baseline_steps = get_baseline(competitor_id)
-    baseline_steps_data = baseline_steps if baseline_steps else None
+    # GPT mini is more reliable when it explores the live funnel from the DOM
+    # instead of replaying stale baseline scripts.
+    baseline_steps_data = None if traversal_model == DEFAULT_TRAVERSAL_MODEL else (baseline_steps if baseline_steps else None)
 
     # Progress callback — appends log entries to the DB in real-time
     _progress_log_buffer = []
@@ -163,14 +245,24 @@ def process_job(job: dict):
             log.debug("Failed to flush progress log for %s", run_id)
 
     try:
+        effective_config = {**(comp.get("config") or {}), **(job.get("config") or {})}
+        baseline_for_run = None if effective_config.get("max_funnel_pages") or effective_config.get("max_pages") else baseline_steps_data
+
         result = run_traversal_sync(
             competitor_name=comp["name"],
             funnel_url=comp["funnel_url"],
-            config=comp.get("config"),
-            baseline_steps=baseline_steps_data,
+            config=effective_config,
+            baseline_steps=baseline_for_run,
             on_progress=_on_progress,
             competitor_slug=comp.get("slug"),
+            traversal_model=traversal_model,
+            run_id=run_id,
         )
+
+        _upload_scan_artifacts(db, run_id, result["steps"])
+        if result.get("pricing"):
+            _attach_pricing_screenshot(result["pricing"], result["steps"])
+            _upload_scan_artifacts(db, run_id, [result["pricing"]])
 
         # Deduplicate steps — keep last occurrence per step_number (most complete)
         deduped_steps: dict[int, dict] = {}
@@ -186,9 +278,11 @@ def process_job(job: dict):
                 "answer_options": step.get("answer_options"),
                 "action_taken": step.get("action_taken"),
                 "url": step.get("url"),
+                "screenshot_path": step.get("screenshot_path"),
                 "metadata": {k: v for k, v in step.items()
                              if k not in ("step_number", "step_type", "question_text",
-                                          "answer_options", "action_taken", "url", "log")},
+                                          "answer_options", "action_taken", "url",
+                                          "screenshot_path", "log")},
             }).execute()
 
         progress_log = _progress_log_buffer
@@ -196,7 +290,7 @@ def process_job(job: dict):
         # Store pricing if captured (skip empty snapshots where agent tagged
         # a page as pricing but extracted no actual plan/discount/trial data)
         pricing = result["pricing"]
-        if pricing and any(pricing.get(k) for k in ("plans", "discounts", "trial_info")):
+        if _has_pricing_evidence(pricing):
             db.table("pricing_snapshots").insert({
                 "run_id": run_id,
                 "competitor_id": competitor_id,
@@ -205,10 +299,16 @@ def process_job(job: dict):
                 "trial_info": pricing.get("trial_info"),
                 "captured_at_step": pricing.get("step_number"),
                 "url": pricing.get("url"),
+                "screenshot_path": pricing.get("screenshot_path"),
             }).execute()
 
         # Update run as completed
         summary = result["summary"]
+        if not _has_pricing_evidence(pricing) and summary.get("stop_reason") in {"unknown", "max_steps", "funnel_reset"}:
+            raise RuntimeError(
+                f"Traversal ended before pricing: stop_reason={summary.get('stop_reason')} "
+                f"steps={len(result['steps'])}"
+            )
         update_data = {
             "status": "completed",
             "completed_at": datetime.now(timezone.utc).isoformat(),
