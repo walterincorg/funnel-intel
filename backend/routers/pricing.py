@@ -61,7 +61,10 @@ def get_screenshot_url(snapshot_id: str):
     try:
         signed = db.storage.from_(SUPABASE_STORAGE_BUCKET).create_signed_url(path, 60 * 60)
     except Exception:
-        log.exception("Failed to mint signed URL for %s", path)
+        # Don't log the storage path itself — CodeQL classifies any
+        # HTTP-derived value as private. The snapshot id alone is enough to
+        # locate the row server-side.
+        log.exception("Failed to mint signed URL for snapshot %s", snapshot_id)
         return {"url": None}
     url = (signed or {}).get("signedURL") or (signed or {}).get("signed_url")
     return {"url": url}

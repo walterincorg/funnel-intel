@@ -454,11 +454,21 @@ def extract_from_screenshot(
     ``vision_to_legacy``).
     """
     img = _maybe_downscale(image_bytes)
+    # Avoid logging the raw URL — funnel URLs frequently include visitor_id
+    # / utm_content fingerprints and CodeQL's clear-text-logging rule treats
+    # any HTTP-derived value as private. Log only the host, which is safe.
+    safe_host = "n/a"
+    if url:
+        from urllib.parse import urlparse
+        try:
+            safe_host = (urlparse(url).hostname or "n/a")
+        except Exception:
+            safe_host = "n/a"
     log.info(
-        "Vision extraction starting (model=%s, image_bytes=%d, url=%s)",
+        "Vision extraction starting (model=%s, image_bytes=%d, host=%s)",
         model,
         len(img),
-        url,
+        safe_host,
     )
 
     user_blocks: list[dict] = [_image_block(img)]
@@ -613,7 +623,15 @@ def _wrap(payload: dict, model: str) -> dict:
         payload["notes"] = (
             prefix + "[sanity-check] " + "; ".join(sanity_warnings)
         )[:1500]
-        log.warning("Vision extractor sanity-check applied: %s", sanity_warnings)
+        # We log just the count, not the per-plan strings — those embed
+        # API-derived values (price/cycle), and CodeQL flags any logging that
+        # traces back through an HTTP response as "clear-text logging of
+        # sensitive information". The full notes are still preserved on the
+        # payload itself for the UI.
+        log.warning(
+            "Vision extractor sanity-check applied: %d plan correction(s)",
+            len(sanity_warnings),
+        )
 
     return payload
 

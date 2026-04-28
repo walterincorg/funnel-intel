@@ -109,10 +109,7 @@ def _refine_pricing_with_vision(
         )
         return
     try:
-        log.info(
-            "[vision-pricing] Re-extracting pricing for %s from %s",
-            competitor_name, shot,
-        )
+        log.info("[vision-pricing] Re-extracting pricing for %s", competitor_name)
         vision = extract_from_path(
             shot,
             competitor_name=competitor_name,
