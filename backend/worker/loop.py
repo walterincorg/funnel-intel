@@ -368,7 +368,6 @@ def process_job(job: dict):
             run_id=run_id,
         )
 
-        _upload_scan_artifacts(db, run_id, result["steps"])
         if result.get("pricing"):
             _attach_pricing_screenshot(result["pricing"], result["steps"])
             # Run the vision pass BEFORE the screenshot is uploaded, since the
@@ -378,6 +377,13 @@ def process_job(job: dict):
             # ids", so the pricing-history chart stops showing fake jumps.
             _refine_pricing_with_vision(result["pricing"], comp["name"], run_id)
             _upload_scan_artifacts(db, run_id, [result["pricing"]])
+
+        # Upload step screenshots only after pricing has had a chance to borrow
+        # one of their local screenshot paths. If we upload steps first, their
+        # paths are mutated to `scan-screenshots/...` and Bioma-like snapshots
+        # skip vision refinement because the extractor no longer has a local
+        # file to read.
+        _upload_scan_artifacts(db, run_id, result["steps"])
 
         # Deduplicate steps — keep last occurrence per step_number (most complete)
         deduped_steps: dict[int, dict] = {}
