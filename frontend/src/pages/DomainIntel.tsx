@@ -100,29 +100,36 @@ function buildClusters(
     if (isNew(r, prevRunAt)) entry.hasNew = true
   }
 
+  // Only union tracked competitors when one appears as a related_domain
+  // of another. This is a strong same-operator signal (shared tracking
+  // codes like GTM containers). The old approach unioned source<->related
+  // for every row, chaining unrelated competitors through random third-party
+  // domains (Cloudflare Pages, staging URLs, ad-tech intermediaries).
+  const trackedSet = new Set<string>(trackedCompetitors)
+
   const dsu = new DSU()
-  const competitorSet = new Set<string>(trackedCompetitors)
-  for (const c of trackedCompetitors) dsu.find(c) // pre-register so singletons appear
+  for (const c of trackedSet) dsu.find(c)
+
   for (const r of rows) {
-    competitorSet.add(r.source_domain)
-    dsu.union(r.source_domain, r.related_domain)
+    if (trackedSet.has(r.source_domain) && trackedSet.has(r.related_domain)) {
+      dsu.union(r.source_domain, r.related_domain)
+    }
+  }
+
+  // Build source -> related ownership map for cluster assignment
+  const sourceToRelated = new Map<string, Set<string>>()
+  for (const r of rows) {
+    let rels = sourceToRelated.get(r.source_domain)
+    if (!rels) {
+      rels = new Set()
+      sourceToRelated.set(r.source_domain, rels)
+    }
+    rels.add(r.related_domain)
   }
 
   const clusters = new Map<string, Cluster>()
-  for (const entry of byRelated.values()) {
-    const root = dsu.find(entry.relatedDomain)
-    let cluster = clusters.get(root)
-    if (!cluster) {
-      cluster = { competitors: [], related: [], newCount: 0 }
-      clusters.set(root, cluster)
-    }
-    cluster.related.push(entry)
-    if (entry.hasNew) cluster.newCount += 1
-  }
 
-  // Attach every tracked competitor to its cluster, creating empty clusters
-  // for competitors that returned no BuiltWith relationship data.
-  for (const c of competitorSet) {
+  for (const c of trackedSet) {
     const root = dsu.find(c)
     let cluster = clusters.get(root)
     if (!cluster) {
@@ -131,6 +138,18 @@ function buildClusters(
     }
     cluster.competitors.push(c)
   }
+
+  // Attach related domains to the cluster of their source competitor
+  for (const entry of byRelated.values()) {
+    const ownerSrc = [...(entry.rows.map(r => r.source_domain))].find(s => trackedSet.has(s))
+    if (!ownerSrc) continue
+    const root = dsu.find(ownerSrc)
+    const cluster = clusters.get(root)
+    if (cluster) {
+      cluster.related.push(entry)
+      if (entry.hasNew) cluster.newCount += 1
+    }
+  }
   for (const cluster of clusters.values()) {
     cluster.competitors.sort()
     cluster.related.sort(
@@ -138,7 +157,7 @@ function buildClusters(
     )
   }
 
-  return [...clusters.values()].sort((a, b) => {
+  const sorted = [...clusters.values()].sort((a, b) => {
     if ((a.competitors.length > 1) !== (b.competitors.length > 1)) {
       return b.competitors.length - a.competitors.length
     }
@@ -148,6 +167,7 @@ function buildClusters(
     if (a.related.length !== b.related.length) return b.related.length - a.related.length
     return (a.competitors[0] ?? '').localeCompare(b.competitors[0] ?? '')
   })
+  return sorted
 }
 
 function ClusterCard({ cluster }: { cluster: Cluster }) {
