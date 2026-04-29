@@ -5,11 +5,17 @@ then runs the full pipeline: Apify scrape -> upsert ads -> snapshot -> signals -
 """
 
 from __future__ import annotations
+import hashlib
 import logging
+import mimetypes
+import re
 import time
 from datetime import date, datetime, timedelta, timezone
+from urllib.parse import urlparse
 
-from backend.config import APIFY_API_TOKEN
+import requests
+
+from backend.config import APIFY_API_TOKEN, SUPABASE_STORAGE_BUCKET
 from backend.db import get_db
 from backend.settings import get_settings
 from backend.worker.ad_scraper import scrape_competitor_ads, normalize_ad
@@ -18,6 +24,9 @@ from backend.worker.ad_signals import compute_signals
 from backend.worker.alerts import send_alert
 
 log = logging.getLogger(__name__)
+MEDIA_CACHE_PREFIX = "ad-media"
+MEDIA_DOWNLOAD_TIMEOUT = 30
+MAX_MEDIA_BYTES = 75 * 1024 * 1024
 
 
 def maybe_run_ad_scrape():
@@ -205,6 +214,7 @@ def _scrape_one_competitor(
     raw_ads = scrape_competitor_ads(ads_library_url)
     normalized = [normalize_ad(raw) for raw in raw_ads]
     normalized = [a for a in normalized if a["meta_ad_id"]]  # filter blanks
+    _cache_ad_media(db, competitor_id, normalized)
 
     # Build meta_ad_id -> raw_data lookup (fixes O(n²) .index() bug)
     meta_to_raw = {}
@@ -236,6 +246,82 @@ def _scrape_one_competitor(
 
     log.info("  %s: %d ads, %d signals", name, len(normalized), len(signals))
     return len(normalized), len(signals)
+
+
+def _cache_ad_media(db, competitor_id: str, normalized: list[dict]) -> None:
+    """Persist freshly scraped Meta media before Facebook CDN links expire."""
+    for ad in normalized:
+        meta_id = ad.get("meta_ad_id")
+        if not meta_id:
+            continue
+        for field, kind in (("image_url", "image"), ("video_url", "video")):
+            url = ad.get(field)
+            if not _should_cache_media_url(url):
+                continue
+            cached = _cache_media_url(db, competitor_id, str(meta_id), str(url), kind)
+            if cached:
+                ad[field] = cached
+
+
+def _should_cache_media_url(url: str | None) -> bool:
+    return bool(url and str(url).startswith(("http://", "https://")))
+
+
+def _safe_media_id(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
+    return safe[:80] or hashlib.sha256(value.encode()).hexdigest()[:16]
+
+
+def _extension_for_media(url: str, content_type: str | None, kind: str) -> str:
+    parsed_ext = mimetypes.guess_extension((content_type or "").split(";")[0].strip())
+    if parsed_ext:
+        return ".jpg" if parsed_ext == ".jpe" else parsed_ext
+    path_ext = mimetypes.guess_type(urlparse(url).path)[0]
+    guessed = mimetypes.guess_extension(path_ext or "")
+    if guessed:
+        return ".jpg" if guessed == ".jpe" else guessed
+    return ".mp4" if kind == "video" else ".jpg"
+
+
+def _cache_media_url(db, competitor_id: str, meta_ad_id: str, url: str, kind: str) -> str | None:
+    try:
+        with requests.get(url, stream=True, timeout=MEDIA_DOWNLOAD_TIMEOUT) as resp:
+            resp.raise_for_status()
+            content_type = (resp.headers.get("content-type") or "").split(";")[0].strip()
+            content_length = int(resp.headers.get("content-length") or 0)
+            if content_length > MAX_MEDIA_BYTES:
+                log.warning("Skipping oversized ad %s media: %d bytes", kind, content_length)
+                return None
+
+            chunks = []
+            size = 0
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                size += len(chunk)
+                if size > MAX_MEDIA_BYTES:
+                    log.warning("Skipping oversized ad %s media after streaming", kind)
+                    return None
+                chunks.append(chunk)
+
+        digest = hashlib.sha256(url.encode()).hexdigest()[:16]
+        ext = _extension_for_media(url, content_type, kind)
+        object_path = (
+            f"{MEDIA_CACHE_PREFIX}/{_safe_media_id(competitor_id)}/"
+            f"{_safe_media_id(meta_ad_id)}/{kind}-{digest}{ext}"
+        )
+        db.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+            object_path,
+            b"".join(chunks),
+            file_options={
+                "content-type": content_type or ("video/mp4" if kind == "video" else "image/jpeg"),
+                "x-upsert": "true",
+            },
+        )
+        return object_path
+    except Exception:
+        log.warning("Failed to cache ad %s media", kind, exc_info=True)
+        return None
 
 
 def _batch_upsert_ads(
