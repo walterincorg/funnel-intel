@@ -107,6 +107,17 @@ def _parse_date(val) -> str | None:
     return s[:10] if len(s) >= 10 else s
 
 
+def _first_value(data: dict | None, *keys: str):
+    """Return the first present, non-empty value from a dict."""
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        value = data.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def normalize_ad(raw: dict) -> dict:
     """Normalize an Apify ad item into our canonical field names.
 
@@ -116,8 +127,14 @@ def normalize_ad(raw: dict) -> dict:
     body = snap.get("body") or {}
 
     # Extract start/end dates — may be Unix timestamps or ISO strings
-    start_date = _parse_date(raw.get("start_date") or snap.get("ad_delivery_start_time"))
-    stop_date = _parse_date(raw.get("end_date") or snap.get("ad_delivery_stop_time"))
+    start_date = _parse_date(
+        _first_value(raw, "start_date", "startDate")
+        or _first_value(snap, "ad_delivery_start_time", "adDeliveryStartTime")
+    )
+    stop_date = _parse_date(
+        _first_value(raw, "end_date", "endDate")
+        or _first_value(snap, "ad_delivery_stop_time", "adDeliveryStopTime")
+    )
 
     # Extract image/video from cards or snapshot
     cards = snap.get("cards") or []
@@ -128,43 +145,92 @@ def normalize_ad(raw: dict) -> dict:
     videos = snap.get("videos") or []
     images = snap.get("images") or []
     if videos:
-        video_url = videos[0].get("video_hd_url") or videos[0].get("video_sd_url")
+        video_url = _first_value(
+            videos[0],
+            "video_hd_url",
+            "videoHdUrl",
+            "videoHDUrl",
+            "video_sd_url",
+            "videoSdUrl",
+            "videoSDUrl",
+            "video_url",
+            "videoUrl",
+            "url",
+        )
         media_type = "video"
     elif images:
-        image_url = images[0].get("original_image_url") or images[0].get("resized_image_url")
+        image_url = _first_value(
+            images[0],
+            "original_image_url",
+            "originalImageUrl",
+            "resized_image_url",
+            "resizedImageUrl",
+            "image_url",
+            "imageUrl",
+            "url",
+        )
     elif cards:
         first_card = cards[0] if cards else {}
-        image_url = first_card.get("original_image_url") or first_card.get("resized_image_url")
+        video_url = _first_value(
+            first_card,
+            "video_hd_url",
+            "videoHdUrl",
+            "videoHDUrl",
+            "video_sd_url",
+            "videoSdUrl",
+            "videoSDUrl",
+            "video_url",
+            "videoUrl",
+        )
+        image_url = _first_value(
+            first_card,
+            "original_image_url",
+            "originalImageUrl",
+            "resized_image_url",
+            "resizedImageUrl",
+            "image_url",
+            "imageUrl",
+        )
         if len(cards) > 1:
             media_type = "carousel"
+        elif video_url:
+            media_type = "video"
 
     # Platforms from publisher_platforms
-    platforms = snap.get("publisher_platforms") or raw.get("publisher_platforms") or []
+    platforms = (
+        _first_value(snap, "publisher_platforms", "publisherPlatforms")
+        or _first_value(raw, "publisher_platforms", "publisherPlatforms")
+        or []
+    )
 
     # Status — trust is_active flag from Apify; end_date is unreliable
     # (scraper sets end_date to current date on ALL ads, even active ones)
-    is_active = raw.get("is_active")
+    is_active = _first_value(raw, "is_active", "isActive")
     if is_active is True:
         status = "ACTIVE"
-    elif is_active is False or raw.get("is_inactive"):
+    elif is_active is False or _first_value(raw, "is_inactive", "isInactive"):
         status = "INACTIVE"
     else:
         status = "ACTIVE"  # default to active if no flag present
 
     return {
-        "meta_ad_id": str(raw.get("ad_archive_id") or raw.get("id", "")),
+        "meta_ad_id": str(_first_value(raw, "ad_archive_id", "adArchiveId", "adArchiveID", "id") or ""),
         "status": status,
         "body_text": body.get("text") if isinstance(body, dict) else str(body) if body else None,
-        "headline": snap.get("title") or snap.get("link_title"),
-        "cta": snap.get("cta_text"),
+        "headline": _first_value(snap, "title", "link_title", "linkTitle"),
+        "cta": _first_value(snap, "cta_text", "ctaText"),
         "image_url": image_url,
         "video_url": video_url,
         "start_date": start_date,
         "stop_date": stop_date,
         "platforms": platforms,
-        "landing_page_url": snap.get("link_url") or snap.get("caption"),
-        "advertiser_name": snap.get("page_name"),
-        "page_id": str(snap.get("page_id") or raw.get("page_id", "")),
+        "landing_page_url": _first_value(snap, "link_url", "linkUrl", "caption"),
+        "advertiser_name": _first_value(snap, "page_name", "pageName"),
+        "page_id": str(
+            _first_value(snap, "page_id", "pageId")
+            or _first_value(raw, "page_id", "pageId")
+            or ""
+        ),
         "media_type": media_type,
-        "impression_range": raw.get("eu_total_reach") or snap.get("impressions"),
+        "impression_range": _first_value(raw, "eu_total_reach", "euTotalReach") or snap.get("impressions"),
     }
