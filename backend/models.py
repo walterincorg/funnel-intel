@@ -95,6 +95,9 @@ class PricingSnapshotOut(BaseModel):
     competitor_id: str
     plans: list | None = None
     discounts: list | None = None
+    # trial_info also carries the vision-extractor payload under
+    # the `_vision` key (the planned dedicated metadata column has not been
+    # applied to the live DB yet and the schema is locked for this branch).
     trial_info: dict | None = None
     captured_at_step: int | None = None
     url: str | None = None

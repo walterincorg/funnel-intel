@@ -82,13 +82,79 @@ export interface ScanStep {
   created_at: string
 }
 
+export interface PricingPlanLegacy {
+  name: string
+  price: string
+  currency: string
+  period: string
+  features?: string[]
+  /** v2 vision extractor: stable slug per plan tile (e.g. "4-week"). */
+  plan_id?: string
+  /** v2 vision extractor: which side of the intro/renewal split this row is. */
+  price_kind?: 'intro' | 'renewal'
+  /** v2 vision extractor: monthly-equivalent dollars (intro for kind=intro etc). */
+  monthly_equivalent?: number | null
+}
+
+export interface PricingDiscount {
+  type: string
+  amount: string
+  original_price?: string | null
+  discounted_price?: string | null
+  conditions?: string | null
+  applies_to_plan_id?: string | null
+}
+
+export interface PricingTrialInfo {
+  has_trial: boolean
+  trial_days?: number | null
+  trial_price?: string | null
+  renews_at?: number | null
+  renews_every?: string | null
+  /** v2 vision extractor payload (stashed here because the planned dedicated
+   * metadata column on `pricing_snapshots` has not been applied to the live
+   * DB yet — additive jsonb keys keep us schema-stable). */
+  _vision?: VisionPricing
+  _pricing_extractor_version?: string
+  _legacy_plans_pre_vision?: PricingPlanLegacy[]
+  _legacy_discounts_pre_vision?: PricingDiscount[]
+}
+
+export interface VisionPlan {
+  plan_id: string
+  display_name: string
+  billing_cycle_weeks: number | null
+  intro?: { total_price: number | null; per_day_price?: number | null; label?: string | null; is_default_selected?: boolean | null } | null
+  renewal?: { total_price: number | null; per_day_price?: number | null; billed_every?: string | null; label?: string | null } | null
+  raw_strikethrough_price?: number | null
+  discount_pct?: number | null
+  is_most_popular?: boolean | null
+  badges?: string[]
+  features?: string[]
+  monthly_equivalent?: number | null
+  renewal_monthly_equivalent?: number | null
+}
+
+export interface VisionPricing {
+  extractor_version: string
+  extractor_model: string
+  page_kind: string
+  currency: string
+  selected_plan_id?: string | null
+  plans: VisionPlan[]
+  trial?: { exists: boolean; days?: number | null; price?: number | null; renews_at?: number | null; renews_every?: string | null }
+  discounts: { type: string; amount?: string | null; applies_to_plan_id?: string | null; original_price?: number | null; discounted_price?: number | null; conditions?: string | null }[]
+  notes?: string
+}
+
 export interface PricingSnapshot {
   id: string
   run_id: string
   competitor_id: string
-  plans: { name: string; price: string; currency: string; period: string; features?: string[] }[] | null
-  discounts: { type: string; amount: string; original_price?: string; discounted_price?: string; conditions?: string }[] | null
-  trial_info: { has_trial: boolean; trial_days?: number; trial_price?: string } | null
+  plans: PricingPlanLegacy[] | null
+  discounts: PricingDiscount[] | null
+  /** Note: also carries the v2 vision payload under `trial_info._vision`. */
+  trial_info: PricingTrialInfo | null
   captured_at_step: number | null
   url: string | null
   screenshot_path: string | null
@@ -327,6 +393,8 @@ export const api = {
   latestPricing: () => request<PricingSnapshot[]>('/pricing/latest'),
   listPricingAll: (competitorId?: string) =>
     request<PricingSnapshot[]>(competitorId ? `/pricing?competitor_id=${competitorId}&limit=500` : '/pricing?limit=500'),
+  pricingScreenshotUrl: (snapshotId: string) =>
+    request<{ url: string | null }>(`/pricing/${snapshotId}/screenshot-url`),
 
   // Compare
   compareRuns: (runAId: string, runBId: string) =>

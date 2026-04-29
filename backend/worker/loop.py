@@ -17,6 +17,11 @@ from backend.worker.differ import diff_runs
 from backend.worker.alerts import send_alert
 from backend.worker.ad_loop import maybe_run_ad_scrape
 from backend.worker.domain_intel_loop import maybe_run_domain_intel
+from backend.worker.pricing_extractor import (
+    extract_from_path,
+    vision_to_legacy,
+    PRICING_EXTRACTOR_VERSION,
+)
 
 log = logging.getLogger(__name__)
 _DEBUG_LOG_PATH = Path("/Users/lukaspostulka/local browser use setup/.cursor/debug-8d43ee.log")
@@ -74,6 +79,80 @@ def _upload_scan_artifacts(db, run_id: str, items: list[dict]) -> None:
             log.warning("Failed to upload screenshot %s", local_path, exc_info=True)
 
 
+def _refine_pricing_with_vision(
+    pricing: dict | None,
+    competitor_name: str,
+    run_id: str,
+) -> None:
+    """Re-extract pricing from the local screenshot via the vision pipeline.
+
+    Mutates ``pricing`` in place: stashes the rich vision payload under
+    ``metadata['vision']`` and overwrites ``plans``/``discounts``/``trial_info``
+    with the legacy projection so the existing diff pipeline keeps working.
+
+    Falls back gracefully when the screenshot path is missing or the API call
+    raises — we never want vision extraction failures to break a scan.
+    """
+    if not pricing:
+        return
+    shot = pricing.get("screenshot_path")
+    if not shot:
+        log.info(
+            "[vision-pricing] No screenshot for run %s; keeping freeform extraction",
+            run_id,
+        )
+        return
+    if str(shot).startswith("scan-screenshots/"):
+        log.debug(
+            "[vision-pricing] Screenshot already uploaded; skipping vision pass for %s",
+            run_id,
+        )
+        return
+    try:
+        log.info("[vision-pricing] Re-extracting pricing for %s", competitor_name)
+        vision = extract_from_path(
+            shot,
+            competitor_name=competitor_name,
+            url=pricing.get("url"),
+            visible_text=pricing.get("raw_text"),
+        )
+    except Exception:
+        log.exception(
+            "[vision-pricing] Vision extraction failed for %s — keeping freeform data",
+            competitor_name,
+        )
+        return
+
+    legacy = vision_to_legacy(vision)
+    plans = legacy.get("plans") or []
+    if not plans and not legacy.get("discounts") and not (legacy.get("trial_info") or {}).get("has_trial"):
+        log.warning(
+            "[vision-pricing] Vision extractor returned nothing for %s; keeping freeform data",
+            competitor_name,
+        )
+        return
+
+    # The live DB does not have the planned `pricing_snapshots.metadata`
+    # column yet, and the user explicitly asked us not to touch the schema.
+    # We stash the rich payload inside the existing `trial_info` jsonb column
+    # under a single underscore-prefixed key. Old readers ignore unknown keys
+    # so this is fully additive.
+    trial_info = dict(legacy.get("trial_info") or {})
+    trial_info["_vision"] = vision
+    trial_info["_pricing_extractor_version"] = PRICING_EXTRACTOR_VERSION
+    trial_info["_legacy_plans_pre_vision"] = pricing.get("plans") or []
+    trial_info["_legacy_discounts_pre_vision"] = pricing.get("discounts") or []
+
+    pricing["plans"] = plans
+    pricing["discounts"] = legacy.get("discounts") or []
+    pricing["trial_info"] = trial_info
+    log.info(
+        "[vision-pricing] Refined pricing for %s: %d plans, %d discounts, trial=%s",
+        competitor_name, len(plans), len(legacy.get("discounts") or []),
+        trial_info.get("has_trial"),
+    )
+
+
 def _has_pricing_evidence(pricing: dict | None) -> bool:
     if not pricing:
         return False
@@ -88,10 +167,17 @@ def _has_pricing_evidence(pricing: dict | None) -> bool:
 
 
 def _attach_pricing_screenshot(pricing: dict | None, steps: list[dict]) -> None:
+    """Attach the LATEST step screenshot that was on the pricing URL.
+
+    Prefers the highest step_number whose URL matches the pricing snapshot's
+    URL, since funnels like Mad Muscles render their wheel-spin discount a
+    couple seconds *after* arriving at /offer — the early screenshot would
+    miss the discount, the late one captures it.
+    """
     if not pricing or pricing.get("screenshot_path"):
         return
     pricing_url = pricing.get("url")
-    candidates = []
+    candidates: list[tuple[int, int, str]] = []  # (score, step_number, path)
     for step in steps:
         shot = step.get("screenshot_path")
         if not shot:
@@ -100,16 +186,18 @@ def _attach_pricing_screenshot(pricing: dict | None, steps: list[dict]) -> None:
         text = (step.get("visible_text") or "").lower()
         score = 0
         if pricing_url and url == pricing_url:
-            score += 10
-        if any(token in url.lower() for token in ("offer", "checkout", "purchase", "paywall")):
+            score += 100
+        if any(token in url.lower() for token in ("offer", "checkout", "purchase", "paywall", "tariff", "final", "plan")):
             score += 5
-        if any(token in text for token in ("choose your plan", "get my plan", "subscription", "billed", "$", "usd")):
+        if any(token in text for token in ("choose your plan", "get my plan", "subscription", "billed", "/month", "/week", "/4 weeks")):
             score += 3
         if score:
             candidates.append((score, step.get("step_number", 0), shot))
-    if candidates:
-        candidates.sort()
-        pricing["screenshot_path"] = candidates[-1][2]
+    if not candidates:
+        return
+    # Sort by (score desc, step_number desc) — best match, most recent.
+    candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+    pricing["screenshot_path"] = candidates[0][2]
 
 
 def _upload_screenshot(local_path: str | None, remote_path: str) -> str | None:
@@ -280,10 +368,22 @@ def process_job(job: dict):
             run_id=run_id,
         )
 
-        _upload_scan_artifacts(db, run_id, result["steps"])
         if result.get("pricing"):
             _attach_pricing_screenshot(result["pricing"], result["steps"])
+            # Run the vision pass BEFORE the screenshot is uploaded, since the
+            # extractor needs the local file. This is the place where we go
+            # from "the freeform agent jammed intro+renewal+per-day into one
+            # field" to "structured intro vs renewal data with stable plan
+            # ids", so the pricing-history chart stops showing fake jumps.
+            _refine_pricing_with_vision(result["pricing"], comp["name"], run_id)
             _upload_scan_artifacts(db, run_id, [result["pricing"]])
+
+        # Upload step screenshots only after pricing has had a chance to borrow
+        # one of their local screenshot paths. If we upload steps first, their
+        # paths are mutated to `scan-screenshots/...` and Bioma-like snapshots
+        # skip vision refinement because the extractor no longer has a local
+        # file to read.
+        _upload_scan_artifacts(db, run_id, result["steps"])
 
         # Deduplicate steps — keep last occurrence per step_number (most complete)
         deduped_steps: dict[int, dict] = {}
@@ -309,7 +409,10 @@ def process_job(job: dict):
         progress_log = _progress_log_buffer
 
         # Store pricing if captured (skip empty snapshots where agent tagged
-        # a page as pricing but extracted no actual plan/discount/trial data)
+        # a page as pricing but extracted no actual plan/discount/trial data).
+        # Vision payload is stashed inside trial_info under `_vision` because
+        # the planned pricing_snapshots.metadata column is not yet applied to
+        # the live DB and the user asked us not to touch the schema.
         pricing = result["pricing"]
         if _has_pricing_evidence(pricing):
             db.table("pricing_snapshots").insert({

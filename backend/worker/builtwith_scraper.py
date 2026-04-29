@@ -51,13 +51,28 @@ def _dbg(hypothesis_id: str, location: str, message: str, data: dict, run_id: st
 
 
 def _resolve_browser_use() -> str:
-    """Resolve the browser-use CLI in the active venv (cross-platform)."""
+    """Resolve the browser-use CLI.
+
+    Resolution order:
+      1. ``BROWSER_USE_BIN`` env override
+      2. The CLI sitting next to the active Python (works for venvs)
+      3. ``shutil.which("browser-use")`` so global / user-bin installs work
+         when uvicorn runs as ``/usr/bin/python3 -m uvicorn``
+    """
     override = os.getenv("BROWSER_USE_BIN")
     if override:
         return override
-    bin_dir = Path(sys.executable).parent
     exe = "browser-use.exe" if sys.platform == "win32" else "browser-use"
-    return str(bin_dir / exe)
+    candidate = Path(sys.executable).parent / exe
+    if candidate.exists():
+        return str(candidate)
+    import shutil
+    discovered = shutil.which(exe)
+    if discovered:
+        return discovered
+    # Fall through to the original guess so callers see a clear "no such file"
+    # error instead of None when nothing is on PATH.
+    return str(candidate)
 
 
 BROWSER_USE = _resolve_browser_use()
@@ -170,7 +185,12 @@ def _attempt_captcha_solve(attempt: int) -> None:
     img_index = None
     for line in state.splitlines():
         if "human-test-img" in line:
-            img_index = line.strip().lstrip("[").split("]")[0]
+            # browser-use renders the index as e.g. "*[76]<img ...>" or
+            # "[76]<img ...>". Pull the digits directly to be robust against
+            # the optional asterisk prefix and any leading whitespace.
+            m = re.search(r"\[(\d+)\]", line)
+            if m:
+                img_index = m.group(1)
             break
     if not img_index:
         raise RuntimeError("Could not find captcha image index in page state")
