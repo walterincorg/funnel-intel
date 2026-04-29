@@ -2,11 +2,29 @@ import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException
+from backend.config import SUPABASE_STORAGE_BUCKET
 from backend.db import get_db
 from backend.models import AdOut, AdSnapshotOut, AdSignalOut, AdScrapeRunOut, AdBriefingOut
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ads", tags=["ads"])
+MEDIA_CACHE_PREFIX = "ad-media/"
+
+
+def _signed_media_url(db, url: str | None) -> str | None:
+    """Return a browser-loadable URL for cached ad media."""
+    if not url:
+        return None
+    if url.startswith(("http://", "https://")):
+        return url
+    if not url.startswith(MEDIA_CACHE_PREFIX):
+        return url
+    try:
+        signed = db.storage.from_(SUPABASE_STORAGE_BUCKET).create_signed_url(url, 60 * 60)
+    except Exception:
+        log.exception("Failed to mint signed ad media URL")
+        return None
+    return (signed or {}).get("signedURL") or (signed or {}).get("signed_url")
 
 
 @router.get("", response_model=list[AdOut])
@@ -149,8 +167,8 @@ def list_winners(limit: int = 10, period: str = "all-time"):
             "media_type": ad.get("media_type"),
             "headline": snap.get("headline"),
             "body_text": (snap.get("body_text") or "")[:200],
-            "image_url": snap.get("image_url"),
-            "video_url": snap.get("video_url"),
+            "image_url": _signed_media_url(db, snap.get("image_url")),
+            "video_url": _signed_media_url(db, snap.get("video_url")),
             "cta": snap.get("cta"),
             "days_active": days,
             "landing_page_url": ad.get("landing_page_url"),
@@ -204,7 +222,8 @@ def get_ad(ad_id: str):
 
 @router.get("/{ad_id}/snapshots", response_model=list[AdSnapshotOut])
 def get_ad_snapshots(ad_id: str, limit: int = 30):
-    return (
+    db = get_db()
+    rows = (
         get_db()
         .table("ad_snapshots")
         .select("*")
@@ -214,3 +233,7 @@ def get_ad_snapshots(ad_id: str, limit: int = 30):
         .execute()
         .data
     )
+    for row in rows:
+        row["image_url"] = _signed_media_url(db, row.get("image_url"))
+        row["video_url"] = _signed_media_url(db, row.get("video_url"))
+    return rows

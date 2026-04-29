@@ -1,4 +1,5 @@
 from backend.worker.ad_scraper import normalize_ad
+from backend.worker.ad_loop import _cache_ad_media
 
 
 def test_normalize_ad_extracts_snake_case_media_fields():
@@ -99,3 +100,29 @@ def test_normalize_ad_extracts_camel_case_card_video():
     assert ad["video_url"] == "https://video.example/card-hd.mp4"
     assert ad["image_url"] == "https://image.example/card.jpg"
     assert ad["media_type"] == "video"
+
+
+def test_cache_ad_media_replaces_remote_urls_with_cached_paths(monkeypatch):
+    normalized = [
+        {
+            "meta_ad_id": "ad-1",
+            "image_url": "https://image.example/ad.jpg",
+            "video_url": "https://video.example/ad.mp4",
+        }
+    ]
+    calls = []
+
+    def fake_cache_media_url(db, competitor_id, meta_ad_id, url, kind):
+        calls.append((competitor_id, meta_ad_id, url, kind))
+        return f"ad-media/{competitor_id}/{meta_ad_id}/{kind}"
+
+    monkeypatch.setattr("backend.worker.ad_loop._cache_media_url", fake_cache_media_url)
+
+    _cache_ad_media(object(), "competitor-1", normalized)
+
+    assert normalized[0]["image_url"] == "ad-media/competitor-1/ad-1/image"
+    assert normalized[0]["video_url"] == "ad-media/competitor-1/ad-1/video"
+    assert calls == [
+        ("competitor-1", "ad-1", "https://image.example/ad.jpg", "image"),
+        ("competitor-1", "ad-1", "https://video.example/ad.mp4", "video"),
+    ]
